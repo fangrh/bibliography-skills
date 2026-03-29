@@ -8,7 +8,7 @@ import sys
 import re
 import argparse
 import json
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from urllib.parse import urlparse
 from pathlib import Path
 import time
