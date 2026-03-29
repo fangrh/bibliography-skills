@@ -182,6 +182,15 @@ class BibSmartSearchTests(unittest.TestCase):
         self.assertIn("Nat. Commun.", inline)
         self.assertIn("4979", inline)
 
+    def test_bib_searcher_can_use_full_journal_names_for_inline_citations(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer(use_full_journal_name=True)
+
+        inline = analyzer.build_inline_citation("10.1038/s41467-024-48306-0")
+
+        self.assertIn("Nature Communications", inline)
+        self.assertNotIn("Nat. Commun.", inline)
+
     def test_rerank_prefers_anchor_matched_phonon_qubit_paper(self):
         module = load_module()
         analyzer = module.CitationNeedAnalyzer()
@@ -407,6 +416,45 @@ class BibSmartSearchTests(unittest.TestCase):
             )
 
         self.assertEqual(len(results), 1)
+        self.assertIn("Phys. Rev. B", results[0]["inline_citation"])
+
+    def test_bib_searcher_prefers_local_bib_before_external_search(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        sentence = (
+            "Superconducting qubit sensors detect mechanical phonons via "
+            "piezoelectric coupling to acoustic modes."
+        )
+
+        def fail_external_search(*args, **kwargs):
+            raise AssertionError("external search should not run when local bibliography already matches")
+
+        analyzer.search_for_citations = fail_external_search
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bib_path = Path(tmpdir) / "references.bib"
+            bib_path.write_text(
+                """@article{Kervinen2018,
+  author = {Kervinen, Mikael and Rissanen, Ilkka and Sillanpaa, Mika},
+  title = {Interfacing planar superconducting qubits with high overtone bulk acoustic phonons},
+  journal = {Phys. Rev. B},
+  volume = {97},
+  pages = {205443},
+  year = {2018},
+  doi = {10.1103/physrevb.97.205443}
+}""",
+                encoding="utf-8",
+            )
+
+            results = analyzer.suggest_citations_for_sentence(
+                sentence,
+                max_results=3,
+                bib_file=str(bib_path),
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source"], "local-bib")
         self.assertIn("Phys. Rev. B", results[0]["inline_citation"])
 
 

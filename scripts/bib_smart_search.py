@@ -115,12 +115,13 @@ class CitationNeedAnalyzer:
         r'\([A-Z][a-z]+\s+and\s+[A-Z][a-z]+,?\s*\d{4}[a-z]?\)',  # (Author and Author, Year)
     ]
 
-    def __init__(self):
+    def __init__(self, use_full_journal_name: bool = False):
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'BibSmartSearch/1.0 (mailto:research@example.com)'
         })
         self.extractor_module = None
+        self.use_full_journal_name = use_full_journal_name
 
     def _openalex_abstract_to_text(self, inverted_index: Optional[Dict]) -> str:
         """Convert an OpenAlex inverted abstract index to plain text."""
@@ -391,6 +392,49 @@ class CitationNeedAnalyzer:
             return 0.0
         return len(source_terms & candidate_terms) / len(source_terms)
 
+    def _parse_bib_entry(self, entry: str) -> Dict:
+        """Parse a BibTeX entry into a candidate record."""
+        fields = {}
+        for match in re.finditer(r'(\w+)\s*=\s*\{([^}]+)\}', entry):
+            fields[match.group(1).lower()] = match.group(2).strip()
+
+        key_match = re.match(r'@\w+\{([^,]+),', entry.strip())
+        return {
+            'cite_key': key_match.group(1) if key_match else '',
+            'doi': fields.get('doi', ''),
+            'title': fields.get('title', ''),
+            'authors': fields.get('author', ''),
+            'year': fields.get('year', ''),
+            'journal': fields.get('journal', '') or fields.get('booktitle', ''),
+            'abstract': fields.get('abstract', ''),
+            'type': fields.get('entrytype', 'article'),
+            'source': 'local-bib',
+            'bibtex': entry.strip(),
+        }
+
+    def _search_local_bibliography(self, sentence: str, bib_file: Optional[str], max_results: int) -> List[Dict]:
+        """Search existing bibliography entries before external APIs."""
+        if not bib_file:
+            return []
+
+        bib_path = Path(bib_file)
+        if not bib_path.exists():
+            return []
+
+        extractor = self._build_bib_extractor()
+        try:
+            content = bib_path.read_text(encoding='utf-8')
+        except OSError:
+            return []
+
+        candidates = [
+            self._parse_bib_entry(entry)
+            for entry in extractor._split_bib_entries(content)
+        ]
+        reranked = self.rerank_citations(sentence, candidates)
+        reranked = [candidate for candidate in reranked if candidate.get('score', 0.0) > 0.0]
+        return reranked[:max_results]
+
     def rerank_citations(self, sentence: str, candidates: List[Dict]) -> List[Dict]:
         """Rerank candidates using token overlap and quantitative-match signals."""
         claim = self.extract_quantitative_claim(sentence)
@@ -528,8 +572,7 @@ class CitationNeedAnalyzer:
 
     def _finalize_bibliography_entry(self, doi: str, bib_file: str) -> Optional[str]:
         """Ensure a DOI is backed by a concrete BibTeX entry in bib_file."""
-        module = self._load_bib_extractor_module()
-        extractor = module.BibExtractor()
+        extractor = self._build_bib_extractor()
 
         existing_entry = extractor.find_existing_entry(doi, bib_file)
         if existing_entry:
@@ -553,19 +596,31 @@ class CitationNeedAnalyzer:
                                        allow_arxiv: bool = False,
                                        bib_file: Optional[str] = None) -> List[Dict]:
         """Search and rerank candidates for a sentence."""
-        search_terms = self._extract_search_terms(sentence)
-        candidates = self.search_for_citations(
-            search_terms,
-            max_results=max(max_results * 2, 6),
-            timeout=timeout,
-            allow_arxiv=allow_arxiv,
-        )
-        reranked = self.rerank_citations(sentence, candidates)
-        reranked = [candidate for candidate in reranked if candidate.get('score', 0.0) > 0.0][:max_results]
+        reranked = self._search_local_bibliography(sentence, bib_file, max_results)
+        if not reranked:
+            search_terms = self._extract_search_terms(sentence)
+            candidates = self.search_for_citations(
+                search_terms,
+                max_results=max(max_results * 2, 6),
+                timeout=timeout,
+                allow_arxiv=allow_arxiv,
+            )
+            reranked = self.rerank_citations(sentence, candidates)
+            reranked = [candidate for candidate in reranked if candidate.get('score', 0.0) > 0.0][:max_results]
         finalized = []
         for candidate in reranked:
             doi = candidate.get('doi', '')
             if not doi:
+                bibtex = candidate.get('bibtex', '')
+                if bibtex:
+                    extractor = self._build_bib_extractor()
+                    candidate['inline_citation'] = extractor.generate_inline_citation(
+                        bibtex,
+                        style='journal',
+                    )
+                    finalized.append(candidate)
+                    continue
+
                 candidate['inline_citation'] = ''
                 if not bib_file:
                     finalized.append(candidate)
@@ -575,8 +630,7 @@ class CitationNeedAnalyzer:
                 bibtex = self._finalize_bibliography_entry(doi, bib_file)
                 if not bibtex:
                     continue
-                module = self._load_bib_extractor_module()
-                extractor = module.BibExtractor()
+                extractor = self._build_bib_extractor()
                 candidate['inline_citation'] = extractor.generate_inline_citation(
                     bibtex,
                     style='journal',
@@ -600,11 +654,14 @@ class CitationNeedAnalyzer:
         self.extractor_module = module
         return module
 
+    def _build_bib_extractor(self):
+        module = self._load_bib_extractor_module()
+        return module.BibExtractor(use_full_journal_name=self.use_full_journal_name)
+
     def build_inline_citation(self, doi: str, style: str = 'journal',
                               bib_file: Optional[str] = None) -> str:
         """Generate an inline citation string using the local bib_extractor."""
-        module = self._load_bib_extractor_module()
-        extractor = module.BibExtractor()
+        extractor = self._build_bib_extractor()
         bibtex = extractor.extract_bibtex(doi, bib_file=bib_file)
         if not bibtex:
             return ''
@@ -806,6 +863,12 @@ def main():
     )
 
     parser.add_argument(
+        '--full-journal-name',
+        action='store_true',
+        help='Use full journal names instead of abbreviations in inline citations.'
+    )
+
+    parser.add_argument(
         '--bib-file',
         help='Target bibliography file. Final citations must exist here when provided.'
     )
@@ -828,7 +891,7 @@ def main():
         sys.exit(1)
 
     # Create analyzer
-    analyzer = CitationNeedAnalyzer()
+    analyzer = CitationNeedAnalyzer(use_full_journal_name=args.full_journal_name)
 
     # Run analysis
     results = analyzer.analyze_document(

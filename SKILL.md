@@ -1,6 +1,6 @@
 ---
 name: bibliography-skills
-description: Use when managing local BibTeX libraries in Codex through two maintained workflows: extracting normalized entries from paper identifiers and searching documents sentence-by-sentence to suggest or update citations.
+description: "Use when managing local BibTeX libraries in Codex through two maintained workflows: extracting normalized entries from paper identifiers and searching documents sentence-by-sentence to suggest or update citations."
 ---
 
 # Bibliography Skills
