@@ -1510,14 +1510,16 @@ class BibExtractor:
         return key
 
     def process_batch(self, identifiers: List[str], bib_file: str,
-                    delay: float = 1.0, fetch_abstract: bool = False) -> tuple[int, int]:
+                    delay: float = 1.0, fetch_abstract: bool = False,
+                    parallel: int = 1) -> tuple[int, int]:
         """Process multiple identifiers and append to BibTeX file.
 
         Args:
             identifiers: List of DOIs, URLs, PMIDs, or arXiv IDs
             bib_file: Output BibTeX file path
-            delay: Delay between requests in seconds
+            delay: Delay between requests in seconds (per worker)
             fetch_abstract: If True, also fetch abstracts
+            parallel: Number of parallel workers (default: 1, sequential)
 
         Returns:
             Tuple of (successful_count, failed_count)
@@ -1528,11 +1530,30 @@ class BibExtractor:
         # Read existing keys
         existing_keys = self.read_existing_keys(bib_file)
 
+        print(f'\nProcessing {len(identifiers)} identifier(s)...', file=sys.stderr)
+        if parallel > 1:
+            print(f'Using {parallel} parallel workers', file=sys.stderr)
+        print(f'Output file: {bib_file}\n', file=sys.stderr)
+
+        if parallel > 1 and len(identifiers) > 1:
+            # Parallel processing
+            return self._process_batch_parallel(
+                identifiers, bib_file, existing_keys,
+                delay, fetch_abstract, parallel
+            )
+        else:
+            # Sequential processing (original behavior)
+            return self._process_batch_sequential(
+                identifiers, bib_file, existing_keys,
+                delay, fetch_abstract
+            )
+
+    def _process_batch_sequential(self, identifiers: List[str], bib_file: str,
+                                  existing_keys: set, delay: float,
+                                  fetch_abstract: bool) -> tuple[int, int]:
+        """Process identifiers sequentially."""
         successful = 0
         failed = 0
-
-        print(f'\nProcessing {len(identifiers)} identifier(s)...', file=sys.stderr)
-        print(f'Output file: {bib_file}\n', file=sys.stderr)
 
         for i, identifier in enumerate(identifiers, 1):
             print(f'[{i}/{len(identifiers)}] Processing: {identifier}', file=sys.stderr)
@@ -1552,10 +1573,92 @@ class BibExtractor:
             if i < len(identifiers):
                 time.sleep(delay)
 
-        # Summary
         print(f'\nSummary: {successful}/{len(identifiers)} successful, {failed} failed', file=sys.stderr)
-
         return successful, failed
+
+    def _process_batch_parallel(self, identifiers: List[str], bib_file: str,
+                                existing_keys: set, delay: float,
+                                fetch_abstract: bool, workers: int) -> tuple[int, int]:
+        """Process identifiers in parallel using ThreadPoolExecutor."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        # Thread-safe lock for file writes
+        write_lock = threading.Lock()
+        # Thread-safe set for tracking keys
+        keys_lock = threading.Lock()
+        processed_keys = set(existing_keys)
+
+        successful = 0
+        failed = 0
+        results = []
+
+        def process_single(identifier: str, index: int) -> Tuple[int, str, Optional[str]]:
+            """Process a single identifier. Returns (index, identifier, bibtex)."""
+            # Add delay per worker to avoid rate limiting
+            time.sleep(delay * (index % workers))
+
+            try:
+                bibtex = self.extract_bibtex(identifier, fetch_abstract=fetch_abstract)
+                return (index, identifier, bibtex)
+            except Exception as e:
+                print(f'  Error processing {identifier}: {e}', file=sys.stderr)
+                return (index, identifier, None)
+
+        # Process in parallel
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(process_single, identifier, i): identifier
+                for i, identifier in enumerate(identifiers)
+            }
+
+            for future in as_completed(futures):
+                identifier = futures[future]
+                try:
+                    index, ident, bibtex = future.result()
+
+                    if bibtex:
+                        with write_lock:
+                            key = self._generate_key_from_bibtex(bibtex, processed_keys)
+                            with keys_lock:
+                                if key in processed_keys:
+                                    key = self._make_unique_key(key, processed_keys)
+                                processed_keys.add(key)
+
+                            # Replace placeholder key and append
+                            bibtex = re.sub(r'(@\w+\s*\{)[^,]+,', f'\\1{key},', bibtex, count=1)
+
+                            with open(bib_file, 'a', encoding='utf-8') as f:
+                                f.write('\n\n' + bibtex)
+
+                        successful += 1
+                        print(f'[{index+1}/{len(identifiers)}] {identifier} -> SUCCESS: {key}', file=sys.stderr)
+                    else:
+                        failed += 1
+                        print(f'[{index+1}/{len(identifiers)}] {identifier} -> FAILED', file=sys.stderr)
+
+                except Exception as e:
+                    failed += 1
+                    print(f'  Exception: {e}', file=sys.stderr)
+
+        print(f'\nSummary: {successful}/{len(identifiers)} successful, {failed} failed', file=sys.stderr)
+        return successful, failed
+
+    def _generate_key_from_bibtex(self, bibtex: str, existing_keys: set) -> str:
+        """Generate citation key from BibTeX content."""
+        return self.generate_citation_key(bibtex, existing_keys)
+
+    def _make_unique_key(self, base_key: str, existing_keys: set) -> str:
+        """Make a key unique by adding suffix."""
+        for suffix in ['a', 'b', 'c', 'd', 'e', 'f']:
+            new_key = base_key + suffix
+            if new_key not in existing_keys:
+                return new_key
+
+        i = 1
+        while f'{base_key}{i}' in existing_keys:
+            i += 1
+        return f'{base_key}{i}'
 
 
 def main():
@@ -1642,6 +1745,13 @@ def main():
         help='Output LaTeX \\href command with DOI link for inline citations'
     )
 
+    parser.add_argument(
+        '--parallel',
+        type=int,
+        default=1,
+        help='Number of parallel workers for batch processing (default: 1)'
+    )
+
     args = parser.parse_args()
 
     # Create extractor
@@ -1701,7 +1811,12 @@ def main():
                 time.sleep(args.delay)
     else:
         # Append to file
-        extractor.process_batch(identifiers, args.output, delay=args.delay, fetch_abstract=args.abstract)
+        extractor.process_batch(
+            identifiers, args.output,
+            delay=args.delay,
+            fetch_abstract=args.abstract,
+            parallel=args.parallel
+        )
 
 
 if __name__ == '__main__':

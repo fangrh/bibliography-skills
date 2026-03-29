@@ -18,6 +18,7 @@ import argparse
 from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class BibLinter:
