@@ -23,6 +23,183 @@ except ImportError:
 class BibExtractor:
     """Extract BibTeX entries from DOIs, URLs, PMIDs, and arXiv IDs."""
 
+    # Journal abbreviation database
+    # Maps full journal names to their standard abbreviations
+    JOURNAL_ABBREVIATIONS = {
+        # American Physical Society journals
+        'Physical Review Letters': 'Phys. Rev. Lett.',
+        'Physical Review A': 'Phys. Rev. A',
+        'Physical Review B': 'Phys. Rev. B',
+        'Physical Review C': 'Phys. Rev. C',
+        'Physical Review D': 'Phys. Rev. D',
+        'Physical Review E': 'Phys. Rev. E',
+        'Physical Review Applied': 'Phys. Rev. Appl.',
+        'Physical Review Materials': 'Phys. Rev. Mater.',
+        'Physical Review X': 'Phys. Rev. X',
+        'Reviews of Modern Physics': 'Rev. Mod. Phys.',
+        'Physical Review': 'Phys. Rev.',
+
+        # Nature family
+        'Nature': 'Nature',
+        'Nature Communications': 'Nat. Commun.',
+        'Nature Physics': 'Nat. Phys.',
+        'Nature Materials': 'Nat. Mater.',
+        'Nature Nanotechnology': 'Nat. Nanotechnol.',
+        'Nature Photonics': 'Nat. Photonics',
+        'Nature Electronics': 'Nat. Electron.',
+        'Nature Chemistry': 'Nat. Chem.',
+        'Nature Biology': 'Nat. Biol.',
+        'Nature Medicine': 'Nat. Med.',
+        'Nature Neuroscience': 'Nat. Neurosci.',
+        'Nature Methods': 'Nat. Methods',
+        'Nature Biotechnology': 'Nat. Biotechnol.',
+        'Nature Climate Change': 'Nat. Clim. Change',
+        'Nature Energy': 'Nat. Energy',
+        'Nature Computational Science': 'Nat. Comput. Sci.',
+        'Nature Machine Intelligence': 'Nat. Mach. Intell.',
+        'Scientific Reports': 'Sci. Rep.',
+
+        # Science family
+        'Science': 'Science',
+        'Science Advances': 'Sci. Adv.',
+        'Science Immunology': 'Sci. Immunol.',
+        'Science Robotics': 'Sci. Robot.',
+        'Science Translational Medicine': 'Sci. Transl. Med.',
+        'Science Signaling': 'Sci. Signal.',
+
+        # Cell Press
+        'Cell': 'Cell',
+        'Molecular Cell': 'Mol. Cell',
+        'Cancer Cell': 'Cancer Cell',
+        'Neuron': 'Neuron',
+        'Immunity': 'Immunity',
+        'Developmental Cell': 'Dev. Cell',
+
+        # PNAS
+        'Proceedings of the National Academy of Sciences': 'Proc. Natl. Acad. Sci. U.S.A.',
+        'Proceedings of the National Academy of Sciences of the United States of America': 'Proc. Natl. Acad. Sci. U.S.A.',
+
+        # IEEE
+        'IEEE Transactions on Electron Devices': 'IEEE Trans. Electron Devices',
+        'IEEE Transactions on Applied Superconductivity': 'IEEE Trans. Appl. Supercond.',
+        'IEEE Transactions on Magnetics': 'IEEE Trans. Magn.',
+        'IEEE Transactions on Microwave Theory and Techniques': 'IEEE Trans. Microw. Theory Tech.',
+        'IEEE Journal of Quantum Electronics': 'IEEE J. Quantum Electron.',
+        'IEEE Electron Device Letters': 'IEEE Electron Device Lett.',
+        'IEEE Microwave and Wireless Components Letters': 'IEEE Microw. Wirel. Compon. Lett.',
+        'Proceedings of the IEEE': 'Proc. IEEE',
+
+        # Other major journals
+        'Journal of Applied Physics': 'J. Appl. Phys.',
+        'Applied Physics Letters': 'Appl. Phys. Lett.',
+        'Applied Physics Reviews': 'Appl. Phys. Rev.',
+        'Review of Scientific Instruments': 'Rev. Sci. Instrum.',
+        'Journal of Chemical Physics': 'J. Chem. Phys.',
+        'The Journal of Chemical Physics': 'J. Chem. Phys.',
+
+        # Nano letters / ACS
+        'Nano Letters': 'Nano Lett.',
+        'ACS Nano': 'ACS Nano',
+        'Journal of the American Chemical Society': 'J. Am. Chem. Soc.',
+        'ACS Applied Materials & Interfaces': 'ACS Appl. Mater. Interfaces',
+        'ACS Photonics': 'ACS Photonics',
+        'Chemical Reviews': 'Chem. Rev.',
+        'Journal of Physical Chemistry': 'J. Phys. Chem.',
+        'The Journal of Physical Chemistry': 'J. Phys. Chem.',
+        'Journal of Physical Chemistry C': 'J. Phys. Chem. C',
+        'Journal of Physical Chemistry B': 'J. Phys. Chem. B',
+        'Journal of Physical Chemistry Letters': 'J. Phys. Chem. Lett.',
+
+        # Springer journals
+        'Applied Physics A': 'Appl. Phys. A',
+        'Applied Physics B': 'Appl. Phys. B',
+        'The European Physical Journal B': 'Eur. Phys. J. B',
+        'The European Physical Journal C': 'Eur. Phys. J. C',
+        'European Physical Journal Plus': 'Eur. Phys. J. Plus',
+        'Zeitschrift für Physik': 'Z. Phys.',
+        'Annalen der Physik': 'Ann. Phys.',
+
+        # AIP journals
+        'Physics of Fluids': 'Phys. Fluids',
+        'Physics of Plasmas': 'Phys. Plasmas',
+        'Chaos': 'Chaos',
+        'Journal of Mathematical Physics': 'J. Math. Phys.',
+        'Low Temperature Physics': 'Low Temp. Phys.',
+        'Review of Scientific Instruments': 'Rev. Sci. Instrum.',
+
+        # Optics
+        'Optics Express': 'Opt. Express',
+        'Optics Letters': 'Opt. Lett.',
+        'Optics Communications': 'Opt. Commun.',
+        'Optical Materials Express': 'Opt. Mater. Express',
+        'Journal of the Optical Society of America B': 'J. Opt. Soc. Am. B',
+        'Applied Optics': 'Appl. Opt.',
+
+        # Elsevier journals
+        'Solid State Communications': 'Solid State Commun.',
+        'Physica C: Superconductivity and its Applications': 'Physica C',
+        'Physica B: Condensed Matter': 'Physica B',
+        'Physica A: Statistical Mechanics and its Applications': 'Physica A',
+        'Physica E: Low-dimensional Systems and Nanostructures': 'Physica E',
+        'Nuclear Instruments and Methods in Physics Research A': 'Nucl. Instrum. Methods Phys. Res. A',
+        'Nuclear Instruments and Methods in Physics Research B': 'Nucl. Instrum. Methods Phys. Res. B',
+        'Surface Science': 'Surf. Sci.',
+        'Superlattices and Microstructures': 'Superlattices Microstruct.',
+        'Journal of Alloys and Compounds': 'J. Alloys Compd.',
+        'Materials Letters': 'Mater. Lett.',
+        'Scripta Materialia': 'Scr. Mater.',
+        'Acta Materialia': 'Acta Mater.',
+
+        # IOP journals
+        'Journal of Physics: Condensed Matter': 'J. Phys.: Condens. Matter',
+        'Journal of Physics: Conference Series': 'J. Phys.: Conf. Ser.',
+        'Superconductor Science and Technology': 'Supercond. Sci. Technol.',
+        'Nanotechnology': 'Nanotechnology',
+        '2D Materials': '2D Mater.',
+        'Journal of Physics D: Applied Physics': 'J. Phys. D: Appl. Phys.',
+        'Semiconductor Science and Technology': 'Semicond. Sci. Technol.',
+        'Quantum Science and Technology': 'Quantum Sci. Technol.',
+        'Machine Learning: Science and Technology': 'Mach. Learn.: Sci. Technol.',
+        'New Journal of Physics': 'New J. Phys.',
+        'EPL (Europhysics Letters)': 'EPL',
+        'Europhysics Letters': 'EPL',
+
+        # Wiley journals
+        'Advanced Materials': 'Adv. Mater.',
+        'Advanced Functional Materials': 'Adv. Funct. Mater.',
+        'Advanced Electronic Materials': 'Adv. Electron. Mater.',
+        'Advanced Quantum Technologies': 'Adv. Quantum Technol.',
+        'Small': 'Small',
+        'Physica Status Solidi A': 'Phys. Status Solidi A',
+        'Physica Status Solidi B': 'Phys. Status Solidi B',
+        'Physica Status Solidi C': 'Phys. Status Solidi C',
+        'Physica Status Solidi RRL': 'Phys. Status Solidi RRL',
+        'Angewandte Chemie International Edition': 'Angew. Chem. Int. Ed.',
+        'Angewandte Chemie': 'Angew. Chem.',
+
+        # arXiv categories (for completeness)
+        'arXiv preprint': 'arXiv',
+
+        # More specialized journals
+        'Superconductor Science and Technology': 'Supercond. Sci. Technol.',
+        'IEEE Transactions on Quantum Engineering': 'IEEE Trans. Quantum Eng.',
+        'Quantum': 'Quantum',
+        'npj Quantum Information': 'npj Quantum Inf.',
+        'PRX Quantum': 'PRX Quantum',
+        'Communications Physics': 'Commun. Phys.',
+        'Scientific Reports': 'Sci. Rep.',
+        'PLOS ONE': 'PLOS ONE',
+        'eLife': 'eLife',
+
+        # Additional common journals
+        'New England Journal of Medicine': 'N. Engl. J. Med.',
+        'The Lancet': 'Lancet',
+        'British Medical Journal': 'BMJ',
+        'Journal of Clinical Investigation': 'J. Clin. Invest.',
+        'Proceedings of the Royal Society A': 'Proc. R. Soc. A',
+        'Philosophical Transactions of the Royal Society A': 'Philos. Trans. R. Soc. A',
+    }
+
     # Journal-specific handlers registry
     # Add new journal handlers here as they are discovered
     JOURNAL_HANDLERS = {
@@ -83,13 +260,50 @@ class BibExtractor:
         }
     }
 
-    def __init__(self, timeout: int = 15):
+    def __init__(self, timeout: int = 15, use_full_journal_name: bool = False):
         self.timeout = timeout
+        self.use_full_journal_name = use_full_journal_name
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'BibExtractor/1.0 (Citation Management Tool)'
         })
         self.detected_journal = None
+
+    def abbreviate_journal(self, journal_name: str) -> str:
+        """Convert journal name to abbreviated form.
+
+        Args:
+            journal_name: Full journal name
+
+        Returns:
+            Abbreviated journal name if found in database, otherwise original name
+        """
+        if self.use_full_journal_name:
+            return journal_name
+
+        if not journal_name:
+            return journal_name
+
+        # Direct lookup
+        if journal_name in self.JOURNAL_ABBREVIATIONS:
+            return self.JOURNAL_ABBREVIATIONS[journal_name]
+
+        # Case-insensitive lookup
+        journal_lower = journal_name.lower()
+        for full_name, abbrev in self.JOURNAL_ABBREVIATIONS.items():
+            if full_name.lower() == journal_lower:
+                return abbrev
+
+        # Try partial match for common variations
+        # Remove common suffixes like " (Edinburgh, Scotland)" or extra whitespace
+        clean_name = journal_name.strip()
+        clean_name = re.sub(r'\s*\([^)]+\)\s*$', '', clean_name)
+
+        if clean_name in self.JOURNAL_ABBREVIATIONS:
+            return self.JOURNAL_ABBREVIATIONS[clean_name]
+
+        # If still no match, return original
+        return journal_name
 
     def detect_journal(self, identifier: str, bibtex: str = '') -> Optional[str]:
         """Detect the journal from identifier or BibTeX content."""
@@ -207,8 +421,280 @@ class BibExtractor:
         print(f'  Citations: Not available', file=sys.stderr)
         return None
 
-    def fetch_from_crossref(self, doi: str) -> Optional[str]:
+    def fetch_journal_impact_factor(self, issn: str, journal_name: str = '') -> Optional[Dict]:
+        """Fetch journal impact metrics from multiple sources.
+
+        Tries to get impact factor or alternative metrics:
+        1. CiteScore (from Scopus/OpenAlex)
+        2. SJR (SCImago Journal Rank)
+        3. SNIP (Source Normalized Impact per Paper)
+        4. h5-index (from Google Scholar, if available)
+
+        Args:
+            issn: Journal ISSN
+            journal_name: Journal name for fallback search
+
+        Returns:
+            Dict with impact metrics or None if unavailable
+        """
+        metrics = {}
+
+        # Try OpenAlex for journal metrics
+        try:
+            if issn:
+                # OpenAlex uses ISSN format with hyphen
+                url = f'https://api.openalex.org/sources/issn:{issn}'
+                headers = {'User-Agent': 'BibExtractor/1.0 (mailto:research@example.com)'}
+                response = self.session.get(url, headers=headers, timeout=self.timeout)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    # Get available metrics
+                    if 'works_count' in data:
+                        metrics['works_count'] = data['works_count']
+                    if 'cited_by_count' in data:
+                        metrics['cited_by_count'] = data['cited_by_count']
+                    if 'summary_stats' in data:
+                        stats = data['summary_stats']
+                        if 'h_index' in stats:
+                            metrics['h_index'] = stats['h_index']
+                        if 'i10_index' in stats:
+                            metrics['i10_index'] = stats['i10_index']
+                        if '2yr_mean_citedness' in stats:
+                            metrics['2yr_impact'] = round(stats['2yr_mean_citedness'], 2)
+                    if metrics:
+                        print(f'  Journal metrics (OpenAlex): Found for {issn}', file=sys.stderr)
+                        return metrics
+        except Exception as e:
+            print(f'  OpenAlex lookup failed: {e}', file=sys.stderr)
+
+        # Try Semantic Scholar for journal info (if no metrics yet)
+        try:
+            # Search for venue by name
+            if journal_name:
+                url = 'https://api.semanticscholar.org/graph/v1/venue/search'
+                params = {'query': journal_name, 'limit': 1}
+                response = self.session.get(url, params=params, timeout=self.timeout)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    venues = data.get('data', [])
+                    if venues:
+                        venue = venues[0]
+                        if 'hIndex' in venue:
+                            metrics['h_index'] = venue['hIndex']
+                        if 'citationCount' in venue:
+                            metrics['venue_citations'] = venue['citationCount']
+                        if metrics:
+                            print(f'  Journal metrics (Semantic Scholar): Found for {journal_name[:30]}', file=sys.stderr)
+                            return metrics
+        except Exception as e:
+            print(f'  Semantic Scholar lookup failed: {e}', file=sys.stderr)
+
+        # Return None if no metrics found
+        if not metrics:
+            print(f'  Journal metrics: Not available', file=sys.stderr)
+            return None
+
+        return metrics
+
+    def _format_impact_factor_field(self, metrics: Dict, journal_name: str = '') -> Optional[str]:
+        """Format impact metrics as a BibTeX-friendly string.
+
+        Args:
+            metrics: Dict of metric name -> value
+            journal_name: Journal name for context
+
+        Returns:
+            Formatted string or None
+        """
+        if not metrics:
+            return None
+
+        parts = []
+        if 'h_index' in metrics:
+            parts.append(f"h-index: {metrics['h_index']}")
+        if 'i10_index' in metrics:
+            parts.append(f"i10: {metrics['i10_index']}")
+        if 'works_count' in metrics:
+            parts.append(f"papers: {metrics['works_count']:,}")
+        if 'cited_by_count' in metrics:
+            parts.append(f"citations: {metrics['cited_by_count']:,}")
+        if 'venue_citations' in metrics:
+            parts.append(f"venue_citations: {metrics['venue_citations']:,}")
+
+        if parts:
+            return ' | '.join(parts)
+        return None
+
+    def fetch_abstract_from_crossref(self, doi: str) -> Optional[str]:
+        """Fetch abstract from CrossRef API.
+
+        Note: Not all CrossRef entries have abstracts.
+
+        Returns:
+            Abstract text or None if unavailable
+        """
+        try:
+            url = f'https://api.crossref.org/works/{doi}'
+            headers = {'User-Agent': 'BibExtractor/1.0'}
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                abstract = data.get('message', {}).get('abstract')
+                if abstract:
+                    # Clean up JATS tags if present
+                    abstract = re.sub(r'</?jats:[^>]+>', '', abstract)
+                    abstract = re.sub(r'</?(sec|title|p)>', '', abstract)
+                    abstract = abstract.strip()
+                    print(f'  Abstract (CrossRef): Found ({len(abstract)} chars)', file=sys.stderr)
+                    return abstract
+        except Exception as e:
+            pass
+
+        return None
+
+    def fetch_abstract_from_semantic_scholar(self, doi: str) -> Optional[str]:
+        """Fetch abstract from Semantic Scholar API.
+
+        Returns:
+            Abstract text or None if unavailable
+        """
+        try:
+            url = f'https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=abstract'
+            response = self.session.get(url, timeout=self.timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                abstract = data.get('abstract')
+                if abstract:
+                    print(f'  Abstract (Semantic Scholar): Found ({len(abstract)} chars)', file=sys.stderr)
+                    return abstract
+        except Exception as e:
+            pass
+
+        return None
+
+    def fetch_abstract_from_pubmed(self, pmid: str) -> Optional[str]:
+        """Fetch abstract from PubMed API.
+
+        Returns:
+            Abstract text or None if unavailable
+        """
+        try:
+            url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
+            params = {
+                'db': 'pubmed',
+                'id': pmid,
+                'retmode': 'xml'
+            }
+            response = self.session.get(url, params=params, timeout=self.timeout)
+
+            if response.status_code == 200:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(response.text)
+
+                # Find abstract element
+                abstract_elem = root.find('.//Abstract')
+                if abstract_elem is not None:
+                    # Get all AbstractText elements
+                    abstract_texts = []
+                    for text_elem in abstract_elem.findall('.//AbstractText'):
+                        label = text_elem.get('Label', '')
+                        text = ''.join(text_elem.itertext())
+                        if label:
+                            abstract_texts.append(f'{label}: {text}')
+                        else:
+                            abstract_texts.append(text)
+
+                    abstract = ' '.join(abstract_texts)
+                    if abstract:
+                        print(f'  Abstract (PubMed): Found ({len(abstract)} chars)', file=sys.stderr)
+                        return abstract
+        except Exception as e:
+            pass
+
+        return None
+
+    def fetch_abstract_from_arxiv(self, arxiv_id: str) -> Optional[str]:
+        """Fetch abstract from arXiv API.
+
+        Returns:
+            Abstract text or None if unavailable
+        """
+        try:
+            url = f'http://export.arxiv.org/api/query?id_list={arxiv_id}'
+            response = self.session.get(url, timeout=self.timeout)
+
+            if response.status_code == 200:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(response.text)
+
+                ns = {'atom': 'http://www.w3.org/2005/Atom'}
+                summary = root.find('.//atom:summary', ns)
+                if summary is not None and summary.text:
+                    abstract = summary.text.strip()
+                    print(f'  Abstract (arXiv): Found ({len(abstract)} chars)', file=sys.stderr)
+                    return abstract
+        except Exception as e:
+            pass
+
+        return None
+
+    def extract_abstract(self, identifier: str, identifier_type: str = None) -> Optional[str]:
+        """Extract abstract from multiple sources.
+
+        Tries sources in order based on identifier type.
+
+        Args:
+            identifier: DOI, PMID, or arXiv ID
+            identifier_type: 'doi', 'pmid', 'arxiv', or None for auto-detect
+
+        Returns:
+            Abstract text or None if unavailable
+        """
+        # Auto-detect identifier type if not specified
+        if identifier_type is None:
+            if identifier.isdigit():
+                identifier_type = 'pmid'
+            elif re.match(r'^\d{4}\.\d{4,5}$', identifier):
+                identifier_type = 'arxiv'
+            else:
+                identifier_type = 'doi'
+
+        # Try sources based on identifier type
+        if identifier_type == 'pmid':
+            # Try PubMed first for PMIDs
+            abstract = self.fetch_abstract_from_pubmed(identifier)
+            if abstract:
+                return abstract
+
+        elif identifier_type == 'arxiv':
+            # Try arXiv for arXiv IDs
+            abstract = self.fetch_abstract_from_arxiv(identifier)
+            if abstract:
+                return abstract
+
+        # For DOIs or as fallback, try CrossRef then Semantic Scholar
+        if identifier_type == 'doi':
+            abstract = self.fetch_abstract_from_crossref(identifier)
+            if abstract:
+                return abstract
+
+            abstract = self.fetch_abstract_from_semantic_scholar(identifier)
+            if abstract:
+                return abstract
+
+        print(f'  Abstract: Not available', file=sys.stderr)
+        return None
+
+    def fetch_from_crossref(self, doi: str, fetch_abstract: bool = False) -> Optional[str]:
         """Fetch BibTeX from CrossRef API.
+
+        Args:
+            doi: The DOI to fetch
+            fetch_abstract: If True, also fetch abstract from available sources
 
         Returns:
             BibTeX string on success, None on failure (with structured error message)
@@ -231,8 +717,27 @@ class BibExtractor:
                 # Fetch citation count
                 citation_count = self.fetch_citation_count(doi)
 
-                # Post-process to fix common issues and add citations
-                bibtex = self._fix_bibtex_fields(bibtex, doi, citation_count)
+                # Optionally fetch abstract
+                abstract = None
+                if fetch_abstract:
+                    abstract = self.extract_abstract(doi, 'doi')
+
+                # Fetch journal impact factor
+                impact_factor = None
+                # Extract journal info from bibtex for impact factor lookup
+                # Note: CrossRef uses uppercase field names (ISSN, DOI, etc.)
+                journal_match = re.search(r'journal\s*=\s*\{([^}]+)\}', bibtex, re.IGNORECASE)
+                issn_match = re.search(r'issn\s*=\s*\{([^}]+)\}', bibtex, re.IGNORECASE)
+                journal_name = journal_match.group(1) if journal_match else ''
+                issn = issn_match.group(1) if issn_match else ''
+
+                if journal_name or issn:
+                    metrics = self.fetch_journal_impact_factor(issn, journal_name)
+                    if metrics:
+                        impact_factor = self._format_impact_factor_field(metrics, journal_name)
+
+                # Post-process to fix common issues and add citations/abstract/impact_factor
+                bibtex = self._fix_bibtex_fields(bibtex, doi, citation_count, abstract, impact_factor)
                 return bibtex
             elif response.status_code == 404:
                 print(f'  ERROR_INVALID: DOI not found in CrossRef: {doi}', file=sys.stderr)
@@ -249,14 +754,17 @@ class BibExtractor:
             print(f'  ERROR: Request failed: {e}', file=sys.stderr)
             return None
 
-    def _fix_bibtex_fields(self, bibtex: str, doi: str, citation_count: Optional[int] = None) -> str:
+    def _fix_bibtex_fields(self, bibtex: str, doi: str, citation_count: Optional[int] = None,
+                           abstract: Optional[str] = None, impact_factor: Optional[str] = None) -> str:
         """Fix and clean up BibTeX fields for consistent formatting.
 
         This method:
         1. Detects the journal type
         2. Applies journal-specific fixes if needed
         3. Adds citation count if available
-        4. Formats output consistently
+        4. Adds abstract if available
+        5. Adds impact factor if available
+        6. Formats output consistently
         """
         # Detect journal from DOI and BibTeX content
         self.detected_journal = self.detect_journal(doi, bibtex)
@@ -280,14 +788,30 @@ class BibExtractor:
         # Apply journal-specific fixes
         fields = self._apply_journal_specific_fixes(fields, self.detected_journal)
 
+        # Apply journal abbreviation (default) or keep full name
+        if 'journal' in fields:
+            fields['journal'] = self.abbreviate_journal(fields['journal'])
+        if 'booktitle' in fields:
+            # Conference proceedings might also benefit from abbreviation
+            fields['booktitle'] = self.abbreviate_journal(fields['booktitle'])
+
         # Add citation count if available
         if citation_count is not None:
             fields['citations'] = str(citation_count)
 
+        # Add abstract if available
+        if abstract is not None:
+            fields['abstract'] = abstract
+
+        # Add impact factor if available
+        if impact_factor is not None:
+            fields['impact_factor'] = impact_factor
+
         # Build clean BibTeX entry with consistent field order
         field_order = [
             'author', 'title', 'journal', 'booktitle', 'volume', 'number', 'pages',
-            'year', 'month', 'citations', 'doi', 'url', 'issn', 'isbn', 'publisher', 'eprint', 'archive', 'pmid'
+            'year', 'month', 'citations', 'impact_factor', 'doi', 'url', 'issn', 'isbn', 'publisher',
+            'eprint', 'archive', 'pmid', 'abstract', 'note', 'annotation'
         ]
 
         # Build the new entry
@@ -327,6 +851,200 @@ class BibExtractor:
             pages = re.sub(r'(?<!-)-(?!-)', '--', pages)
             pages = pages.replace('----', '--')
             return pages
+
+    def generate_inline_citation(self, bibtex: str, style: str = 'journal') -> str:
+        """Generate inline citation from BibTeX entry.
+
+        Args:
+            bibtex: BibTeX entry string
+            style: Citation style - 'journal', 'author', 'numbered', or 'nature'
+                - 'journal': Journal, Volume, Pages, (Year) - e.g., Phys. Rev. B, 109, 144303, (2024)
+                - 'author': Author (Year) Journal, Volume, Pages - e.g., Smith et al. (2024) Nature, 123, 456
+                - 'numbered': [Number] - e.g., [1]
+                - 'nature': Nature style - e.g., Smith, J. et al. Nature 123, 456 (2024)
+
+        Returns:
+            Formatted inline citation string
+        """
+        # Extract fields
+        fields = {}
+        field_pattern = r'(\w+)\s*=\s*\{([^}]+)\}'
+        for match in re.finditer(field_pattern, bibtex):
+            field_name = match.group(1).lower()
+            field_value = match.group(2).strip()
+            fields[field_name] = field_value
+
+        # Get required fields
+        journal = fields.get('journal', '')
+        booktitle = fields.get('booktitle', '')
+        venue = journal or booktitle
+        volume = fields.get('volume', '')
+        number = fields.get('number', '')
+        pages = fields.get('pages', '')
+        year = fields.get('year', '')
+        authors = fields.get('author', '')
+        title = fields.get('title', '')
+        doi = fields.get('doi', '')
+
+        # Format authors
+        first_author = ''
+        if authors:
+            author_list = authors.split(' and ')
+            first = author_list[0]
+            if ',' in first:
+                first_author = first.split(',')[0].strip()
+            else:
+                first_author = first.split()[-1].strip() if first.split() else first
+
+        if style == 'journal':
+            # Format: Journal, Volume, Pages, (Year)
+            parts = []
+            if venue:
+                # Use italic formatting for journal name
+                parts.append(f'\\textit{{{venue}}}')
+            if volume:
+                parts.append(volume)
+            if pages:
+                # Clean up page format for inline citation
+                clean_pages = pages.replace('--', '-')
+                parts.append(clean_pages)
+
+            # Build citation
+            citation = ', '.join(parts)
+            if year:
+                if parts:
+                    citation += f', ({year})'
+                else:
+                    citation = f'({year})'
+
+            return citation
+
+        elif style == 'author':
+            # Format: Author et al. (Year) Journal, Volume, Pages
+            parts = []
+            if first_author:
+                if len(authors.split(' and ')) > 1:
+                    parts.append(f'{first_author} et al.')
+                else:
+                    parts.append(first_author)
+            if year:
+                parts.append(f'({year})')
+            if venue:
+                parts.append(f'\\textit{{{venue}}}')
+            if volume:
+                parts.append(volume)
+            if pages:
+                clean_pages = pages.replace('--', '-')
+                parts.append(clean_pages)
+
+            return ' '.join(parts)
+
+        elif style == 'nature':
+            # Format: Author, F. et al. Nature 123, 456 (2024)
+            parts = []
+            if authors:
+                author_list = authors.split(' and ')
+                first = author_list[0]
+                if ',' in first:
+                    last, first_name = first.split(',', 1)
+                    # Get initials
+                    initials = '. '.join(n[0] for n in first_name.strip().split() if n) + '.'
+                    parts.append(f'{last.strip()}, {initials}')
+                else:
+                    parts.append(first)
+                if len(author_list) > 1:
+                    parts[-1] = parts[-1].rstrip('.') + ' et al.'
+
+            if venue:
+                parts.append(f'\\textit{{{venue}}}')
+
+            if volume and pages:
+                clean_pages = pages.replace('--', '-')
+                parts.append(f'{volume}, {clean_pages}')
+            elif volume:
+                parts.append(volume)
+
+            if year:
+                parts.append(f'({year})')
+
+            return ' '.join(parts)
+
+        elif style == 'numbered':
+            # Just return [cite_key] format
+            key_match = re.match(r'@\w+\{([^,]+),', bibtex)
+            if key_match:
+                return f'\\cite{{{key_match.group(1)}}}'
+            return ''
+
+        elif style == 'apa':
+            # APA format: Author, A. A., & Author, B. B. (Year). Title. Journal, Volume(Issue), Pages.
+            parts = []
+            if authors:
+                author_list = authors.split(' and ')
+                formatted_authors = []
+                for auth in author_list:
+                    if ',' in auth:
+                        last, first = auth.split(',', 1)
+                        initials = '. '.join(n[0] for n in first.strip().split() if n) + '.'
+                        formatted_authors.append(f'{last.strip()}, {initials}')
+                    else:
+                        formatted_authors.append(auth)
+
+                if len(formatted_authors) == 1:
+                    parts.append(formatted_authors[0])
+                elif len(formatted_authors) == 2:
+                    parts.append(f'{formatted_authors[0]} & {formatted_authors[1]}')
+                else:
+                    parts.append(f'{formatted_authors[0]} et al.')
+
+            if year:
+                parts.append(f'({year})')
+
+            if title:
+                parts.append(title + '.')
+
+            if venue:
+                venue_part = f'\\textit{{{venue}}}'
+                if volume:
+                    venue_part += f', {volume}'
+                    if number:
+                        venue_part += f'({number})'
+                parts.append(venue_part + '.')
+
+            return ' '.join(parts)
+
+        return ''
+
+    def generate_latex_href(self, bibtex: str, style: str = 'journal') -> str:
+        """Generate LaTeX \\href command for DOI/URL.
+
+        Args:
+            bibtex: BibTeX entry string
+            style: Citation style (see generate_inline_citation)
+
+        Returns:
+            LaTeX \\href command with inline citation
+        """
+        fields = {}
+        field_pattern = r'(\w+)\s*=\s*\{([^}]+)\}'
+        for match in re.finditer(field_pattern, bibtex):
+            field_name = match.group(1).lower()
+            field_value = match.group(2).strip()
+            fields[field_name] = field_value
+
+        doi = fields.get('doi', '')
+        url = fields.get('url', '')
+
+        # Generate link URL
+        link_url = f'https://doi.org/{doi}' if doi else url
+
+        # Generate inline citation
+        inline = self.generate_inline_citation(bibtex, style)
+
+        if link_url and inline:
+            return f'\\href{{{link_url}}}{{{inline}}}'
+
+        return inline
 
     def _apply_journal_specific_fixes(self, fields: Dict, journal: Optional[str]) -> Dict:
         """Apply journal-specific metadata corrections.
@@ -388,8 +1106,16 @@ class BibExtractor:
 
         return fields
 
-    def fetch_from_pubmed(self, pmid: str) -> Optional[str]:
-        """Fetch metadata from PubMed and convert to BibTeX."""
+    def fetch_from_pubmed(self, pmid: str, fetch_abstract: bool = False) -> Optional[str]:
+        """Fetch metadata from PubMed and convert to BibTeX.
+
+        Args:
+            pmid: PubMed ID
+            fetch_abstract: If True, also fetch abstract
+
+        Returns:
+            BibTeX string or None
+        """
         # First fetch JSON metadata
         url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
         params = {
@@ -404,7 +1130,15 @@ class BibExtractor:
 
             if response.status_code == 200:
                 data = response.json()
-                return self._pubmed_to_bibtex(data, pmid)
+                bibtex = self._pubmed_to_bibtex(data, pmid)
+
+                # Optionally fetch abstract
+                if bibtex and fetch_abstract:
+                    abstract = self.fetch_abstract_from_pubmed(pmid)
+                    if abstract:
+                        bibtex = self._add_abstract_to_bibtex(bibtex, abstract)
+
+                return bibtex
             else:
                 return None
 
@@ -412,8 +1146,16 @@ class BibExtractor:
             print(f'  Warning: PubMed fetch failed: {e}', file=sys.stderr)
             return None
 
-    def fetch_from_arxiv(self, arxiv_id: str) -> Optional[str]:
-        """Fetch metadata from arXiv and convert to BibTeX."""
+    def fetch_from_arxiv(self, arxiv_id: str, fetch_abstract: bool = False) -> Optional[str]:
+        """Fetch metadata from arXiv and convert to BibTeX.
+
+        Args:
+            arxiv_id: arXiv identifier
+            fetch_abstract: If True, also fetch abstract
+
+        Returns:
+            BibTeX string or None
+        """
         # Use arXiv API with JSON format
         url = f'http://export.arxiv.org/api/query?id_list={arxiv_id}'
 
@@ -421,7 +1163,11 @@ class BibExtractor:
             response = self.session.get(url, timeout=self.timeout)
 
             if response.status_code == 200:
-                return self._arxiv_to_bibtex(response.text, arxiv_id)
+                bibtex = self._arxiv_to_bibtex(response.text, arxiv_id)
+
+                # arXiv entries usually include abstract in the API response
+                # which is handled in _arxiv_to_bibtex
+                return bibtex
             else:
                 print(f'  Warning: arXiv returned status {response.status_code}', file=sys.stderr)
                 return None
@@ -504,6 +1250,10 @@ class BibExtractor:
             title_elem = entry.find('atom:title', ns)
             title = title_elem.text if title_elem is not None else ''
 
+            # Extract abstract (summary)
+            summary_elem = entry.find('atom:summary', ns)
+            abstract = summary_elem.text.strip() if summary_elem is not None and summary_elem.text else None
+
             # Extract authors
             authors = []
             for author in entry.findall('atom:author', ns):
@@ -532,8 +1282,10 @@ class BibExtractor:
                 bibtex += f'  year      = {{{year}}},\n'
             bibtex += f'  eprint    = {{{arxiv_id}}},\n'
             bibtex += f'  archive   = {{arXiv}},\n'
-            bibtex += f'  url       = {{https://arxiv.org/abs/{arxiv_id}}}\n'
-            bibtex += '}'
+            bibtex += f'  url       = {{https://arxiv.org/abs/{arxiv_id}}}'
+            if abstract:
+                bibtex += f',\n  abstract  = {{{abstract}}}'
+            bibtex += '\n}'
 
             return bibtex
 
@@ -594,8 +1346,13 @@ class BibExtractor:
             i += 1
         return f'{base_key}{i}'
 
-    def extract_bibtex(self, identifier: str) -> Optional[str]:
-        """Extract BibTeX entry from identifier (DOI, URL, PMID, arXiv ID)."""
+    def extract_bibtex(self, identifier: str, fetch_abstract: bool = False) -> Optional[str]:
+        """Extract BibTeX entry from identifier (DOI, URL, PMID, arXiv ID).
+
+        Args:
+            identifier: DOI, URL, PMID, or arXiv ID
+            fetch_abstract: If True, also fetch abstract from available sources
+        """
         identifier = identifier.strip()
 
         # Check if it's a URL
@@ -604,40 +1361,40 @@ class BibExtractor:
             doi = self.extract_doi_from_url(identifier)
             if doi:
                 print(f'  Extracted DOI: {doi}', file=sys.stderr)
-                return self.fetch_from_crossref(doi)
+                return self.fetch_from_crossref(doi, fetch_abstract=fetch_abstract)
 
             # Try arXiv
             arxiv_id = self.extract_arxiv_id_from_url(identifier)
             if arxiv_id:
                 print(f'  Extracted arXiv ID: {arxiv_id}', file=sys.stderr)
-                return self.fetch_from_arxiv(arxiv_id)
+                return self.fetch_from_arxiv(arxiv_id, fetch_abstract=fetch_abstract)
 
             # Try PubMed
             pmid = self.extract_pmid_from_url(identifier)
             if pmid:
                 print(f'  Extracted PMID: {pmid}', file=sys.stderr)
-                return self.fetch_from_pubmed(pmid)
+                return self.fetch_from_pubmed(pmid, fetch_abstract=fetch_abstract)
 
             # Fallback: try treating URL as DOI
             if 'doi' in identifier.lower():
                 doi = self.clean_doi(identifier)
-                return self.fetch_from_crossref(doi)
+                return self.fetch_from_crossref(doi, fetch_abstract=fetch_abstract)
 
             print(f'  Warning: Could not extract identifier from URL: {identifier}', file=sys.stderr)
             return None
 
         # Check if it's a PMID (numeric)
         if identifier.isdigit():
-            return self.fetch_from_pubmed(identifier)
+            return self.fetch_from_pubmed(identifier, fetch_abstract=fetch_abstract)
 
         # Check if it's an arXiv ID
         arxiv_match = re.match(r'^\d{4}\.\d{4,5}$', identifier)
         if arxiv_match:
-            return self.fetch_from_arxiv(identifier)
+            return self.fetch_from_arxiv(identifier, fetch_abstract=fetch_abstract)
 
         # Treat as DOI
         doi = self.clean_doi(identifier)
-        return self.fetch_from_crossref(doi)
+        return self.fetch_from_crossref(doi, fetch_abstract=fetch_abstract)
 
     def clean_invalid_entries(self, bib_file: str, output_file: Optional[str] = None) -> tuple[int, int]:
         """Remove invalid entries from BibTeX file.
@@ -753,8 +1510,18 @@ class BibExtractor:
         return key
 
     def process_batch(self, identifiers: List[str], bib_file: str,
-                    delay: float = 1.0) -> tuple[int, int]:
-        """Process multiple identifiers and append to BibTeX file."""
+                    delay: float = 1.0, fetch_abstract: bool = False) -> tuple[int, int]:
+        """Process multiple identifiers and append to BibTeX file.
+
+        Args:
+            identifiers: List of DOIs, URLs, PMIDs, or arXiv IDs
+            bib_file: Output BibTeX file path
+            delay: Delay between requests in seconds
+            fetch_abstract: If True, also fetch abstracts
+
+        Returns:
+            Tuple of (successful_count, failed_count)
+        """
         # Create file if it doesn't exist
         Path(bib_file).touch(exist_ok=True)
 
@@ -770,7 +1537,7 @@ class BibExtractor:
         for i, identifier in enumerate(identifiers, 1):
             print(f'[{i}/{len(identifiers)}] Processing: {identifier}', file=sys.stderr)
 
-            bibtex = self.extract_bibtex(identifier)
+            bibtex = self.extract_bibtex(identifier, fetch_abstract=fetch_abstract)
 
             if bibtex:
                 key = self.append_to_file(bibtex, bib_file, existing_keys)
@@ -844,10 +1611,41 @@ def main():
         help='Remove entries with invalid DOIs from the BibTeX file'
     )
 
+    parser.add_argument(
+        '--full-journal-name',
+        action='store_true',
+        help='Use full journal names instead of abbreviations (default: abbreviated)'
+    )
+
+    parser.add_argument(
+        '--abstract',
+        action='store_true',
+        help='Fetch and include abstract in BibTeX entry'
+    )
+
+    parser.add_argument(
+        '--inline',
+        action='store_true',
+        help='Output inline citation format instead of BibTeX'
+    )
+
+    parser.add_argument(
+        '--inline-style',
+        choices=['journal', 'author', 'nature', 'apa'],
+        default='journal',
+        help='Citation style for inline output: journal (default), author, nature, apa'
+    )
+
+    parser.add_argument(
+        '--latex-href',
+        action='store_true',
+        help='Output LaTeX \\href command with DOI link for inline citations'
+    )
+
     args = parser.parse_args()
 
     # Create extractor
-    extractor = BibExtractor(timeout=args.timeout)
+    extractor = BibExtractor(timeout=args.timeout, use_full_journal_name=args.full_journal_name)
 
     # Clean invalid entries mode
     if args.clean_invalid:
@@ -877,25 +1675,33 @@ def main():
         sys.exit(1)
 
     # Create extractor
-    extractor = BibExtractor(timeout=args.timeout)
+    extractor = BibExtractor(timeout=args.timeout, use_full_journal_name=args.full_journal_name)
 
     # Process
-    if args.print_only:
+    if args.print_only or args.inline:
         # Print to stdout only
         print(f'# Extracting {len(identifiers)} bibliography entry(ies)', file=sys.stderr)
         for i, identifier in enumerate(identifiers, 1):
             print(f'[{i}/{len(identifiers)}] {identifier}', file=sys.stderr)
-            bibtex = extractor.extract_bibtex(identifier)
+            bibtex = extractor.extract_bibtex(identifier, fetch_abstract=args.abstract)
             if bibtex:
                 print()
-                print(bibtex)
+                if args.inline:
+                    # Output inline citation format
+                    if args.latex_href:
+                        citation = extractor.generate_latex_href(bibtex, style=args.inline_style)
+                    else:
+                        citation = extractor.generate_inline_citation(bibtex, style=args.inline_style)
+                    print(citation)
+                else:
+                    print(bibtex)
             else:
                 print(f'  Failed to extract: {identifier}', file=sys.stderr)
             if i < len(identifiers):
                 time.sleep(args.delay)
     else:
         # Append to file
-        extractor.process_batch(identifiers, args.output, delay=args.delay)
+        extractor.process_batch(identifiers, args.output, delay=args.delay, fetch_abstract=args.abstract)
 
 
 if __name__ == '__main__':

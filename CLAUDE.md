@@ -24,6 +24,7 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 | `/bib-extractor` | Extract BibTeX from DOIs, URLs, PMIDs, arXiv IDs |
 | `/bib-preview` | Generate LaTeX preview from BibTeX files |
 | `/bib-search` | Search and extract bibliography from web |
+| `/bib-sync` | Sync library with online sources, update metadata |
 
 ## Quick Start
 
@@ -36,6 +37,9 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 # Search for papers
 /bib-search "quantum computing"
+
+# Sync library with online sources
+/bib-sync references.bib
 ```
 
 ## Documentation

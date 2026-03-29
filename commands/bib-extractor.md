@@ -18,12 +18,61 @@ Extract bibliography entries from DOIs, URLs, PMIDs, and arXiv IDs. Automaticall
 | `--delay` | Delay between requests in seconds (default: 1.0) | Optional |
 | `--timeout` | Request timeout in seconds (default: 15) | Optional |
 | `--print-only` | Print BibTeX to stdout without appending to file | Optional |
+| `--abstract` | Fetch and include abstract in BibTeX entry | Optional |
+| `--impact-factor` | Fetch and include journal impact factor/metrics | Optional |
+| `--full-journal-name` | Use full journal names instead of abbreviations | Optional |
+| `--inline` | Output inline citation format instead of BibTeX | Optional |
+| `--inline-style` | Citation style: `journal`, `author`, `nature`, `apa` (default: journal) | Optional |
+| `--latex-href` | Output LaTeX \href command with DOI link | Optional |
+| `--clean-invalid` | Remove entries with invalid DOIs from the BibTeX file | Optional |
+
+## Output Fields
+
+Generated BibTeX entries include:
+- Standard fields: author, title, journal, volume, pages, year, doi, url
+- `citations`: Citation count from CrossRef/OpenAlex/Semantic Scholar
+- `impact_factor`: Journal metrics (h-index, i10-index, paper count, citation count)
+- `abstract`: Paper abstract (when using `--abstract` flag)
+
+## Impact Factor Metrics
+
+The `--impact-factor` flag adds journal-level metrics from OpenAlex:
+- **h-index**: Journal's h-index
+- **i10-index**: Number of papers cited 10+ times
+- **papers**: Total papers in journal
+- **citations**: Total citations to journal
+
+## Journal Abbreviations
+
+By default, journal names are abbreviated following standard conventions. Examples:
+
+| Full Name | Abbreviation |
+|-----------|--------------|
+| Physical Review Letters | Phys. Rev. Lett. |
+| Physical Review B | Phys. Rev. B |
+| Nature Communications | Nat. Commun. |
+| Nature Physics | Nat. Phys. |
+| Science | Science |
+| Nano Letters | Nano Lett. |
+| Applied Physics Letters | Appl. Phys. Lett. |
+
+Use `--full-journal-name` to keep the complete journal name instead.
+| `--full-journal-name` | Use full journal names instead of abbreviations | Optional |
 
 ## Examples
 
 ```
-# Extract single DOI
+# Extract single DOI (journal abbreviated by default)
 /bib-extractor 10.1038/s41586-021-03926-0
+# Output: journal = {Nat. Commun.}
+
+# Extract with full journal name
+/bib-extractor 10.1038/s41586-021-03926-0 --full-journal-name
+# Output: journal = {Nature Communications}
+
+# Extract with abstract
+/bib-extractor 10.1038/s41586-021-03926-0 --abstract
+# Output includes: abstract = {Full abstract text...}
 
 # Extract from URL
 /bib-extractor https://doi.org/10.1126/science.abf5641
@@ -36,7 +85,32 @@ Extract bibliography entries from DOIs, URLs, PMIDs, and arXiv IDs. Automaticall
 
 # Print without saving
 /bib-extractor 10.1038/s41586-021-03926-0 --print-only
+
+# Generate inline citation (journal style)
+/bib-extractor 10.1038/s41586-021-03926-0 --inline
+# Output: \textit{Nature}, 598, 434–438, (2021)
+
+# Generate LaTeX href with inline citation
+/bib-extractor 10.1038/s41586-021-03926-0 --inline --latex-href
+# Output: \href{https://doi.org/10.1038/s41586-021-03926-0}{\textit{Nature}, 598, 434–438, (2021)}
+
+# Generate author-style citation
+/bib-extractor 10.1038/s41586-021-03926-0 --inline --inline-style author
+# Output: Zhou et al. (2021) \textit{Nature} 598 434–438
+
+# Generate Nature-style citation
+/bib-extractor 10.1038/s41586-021-03926-0 --inline --inline-style nature
+# Output: Zhou, H et al. \textit{Nature} 598, 434–438 (2021)
 ```
+
+## Inline Citation Styles
+
+| Style | Format | Example |
+|-------|--------|---------|
+| `journal` (default) | *Journal*, Volume, Pages, (Year) | `\textit{Nature}, 598, 434–438, (2021)` |
+| `author` | Author et al. (Year) *Journal* Volume Pages | `Zhou et al. (2021) \textit{Nature} 598 434–438` |
+| `nature` | Author, F et al. *Journal* Volume, Pages (Year) | `Zhou, H et al. \textit{Nature} 598, 434–438 (2021)` |
+| `apa` | Author, F. et al. (Year). Title. *Journal*, Volume(Issue). | `Zhou, H. et al. (2021) Superconductivity... \textit{Nature}, 598(7881).` |
 
 ## Input Formats
 
