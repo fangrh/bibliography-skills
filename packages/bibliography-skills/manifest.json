@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
-  "version": "1.1.0",
-  "description": "Zotero-like bibliography extraction and management for Claude Code and Codex with abstract extraction, note generation, and citation tracking",
+  "version": "2.0.0",
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
   "author": "fangrh",
   "license": "MIT",
   "repository": "fangrh/bibliography-skills-marketplace",
@@ -14,18 +14,12 @@
     "citations",
     "doi",
     "arxiv",
-    "abstract",
-    "note-generation",
-    "citation-tracking"
+    "smart-search"
   ],
   "claude": {
     "commands": [
       "bib-extractor",
-      "bib-note",
-      "bib-preview",
-      "bib-search",
-      "bib-sync",
-      "bib-track"
+      "bib-searcher"
     ],
     "skills": [
       "bib-extractor"
@@ -45,40 +39,16 @@
       "destination": "~/.claude/commands/bib-extractor.md"
     },
     {
-      "source": "commands/bib-note.md",
-      "destination": "~/.claude/commands/bib-note.md"
-    },
-    {
-      "source": "commands/bib-preview.md",
-      "destination": "~/.claude/commands/bib-preview.md"
-    },
-    {
-      "source": "commands/bib-search.md",
-      "destination": "~/.claude/commands/bib-search.md"
-    },
-    {
-      "source": "commands/bib-sync.md",
-      "destination": "~/.claude/commands/bib-sync.md"
-    },
-    {
-      "source": "commands/bib-track.md",
-      "destination": "~/.claude/commands/bib-track.md"
+      "source": "commands/bib-searcher.md",
+      "destination": "~/.claude/commands/bib-searcher.md"
     },
     {
       "source": "scripts/bib_extractor.py",
       "destination": "~/.claude/scripts/bib_extractor.py"
     },
     {
-      "source": "scripts/bib_note_generator.py",
-      "destination": "~/.claude/scripts/bib_note_generator.py"
-    },
-    {
-      "source": "scripts/bib_sync.py",
-      "destination": "~/.claude/scripts/bib_sync.py"
-    },
-    {
-      "source": "scripts/bib_citation_tracker.py",
-      "destination": "~/.claude/scripts/bib_citation_tracker.py"
+      "source": "scripts/bib_smart_search.py",
+      "destination": "~/.claude/scripts/bib_smart_search.py"
     },
     {
       "source": "SKILL.md",

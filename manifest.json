@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
-  "version": "1.3.0",
-  "description": "Zotero-like bibliography extraction and management for Claude Code and Codex",
+  "version": "2.0.0",
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
   "author": "fangrh",
   "license": "MIT",
   "repository": {
@@ -17,22 +17,12 @@
     "citations",
     "doi",
     "arxiv",
-    "abstract",
-    "note-generation",
-    "citation-tracking",
-    "lint",
     "smart-search"
   ],
   "claude": {
     "commands": [
-      "bib-analyze",
       "bib-extractor",
-      "bib-lint",
-      "bib-note",
-      "bib-preview",
-      "bib-search",
-      "bib-sync",
-      "bib-track"
+      "bib-searcher"
     ],
     "dependencies": [
       "requests"

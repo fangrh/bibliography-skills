@@ -555,6 +555,20 @@ class BibExtractor:
 
         return None
 
+    def fetch_crossref_work_metadata(self, doi: str) -> Optional[Dict]:
+        """Fetch structured CrossRef metadata for field backfilling."""
+        try:
+            url = f'https://api.crossref.org/works/{doi}'
+            headers = {'User-Agent': 'BibExtractor/1.0'}
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
+
+            if response.status_code == 200:
+                return response.json().get('message', {})
+        except Exception:
+            pass
+
+        return None
+
     def fetch_abstract_from_semantic_scholar(self, doi: str) -> Optional[str]:
         """Fetch abstract from Semantic Scholar API.
 
@@ -714,6 +728,8 @@ class BibExtractor:
                 if bibtex.startswith('@data{'):
                     bibtex = bibtex.replace('@data{', '@misc{', 1)
 
+                crossref_metadata = self.fetch_crossref_work_metadata(doi)
+
                 # Fetch citation count
                 citation_count = self.fetch_citation_count(doi)
 
@@ -737,7 +753,14 @@ class BibExtractor:
                         impact_factor = self._format_impact_factor_field(metrics, journal_name)
 
                 # Post-process to fix common issues and add citations/abstract/impact_factor
-                bibtex = self._fix_bibtex_fields(bibtex, doi, citation_count, abstract, impact_factor)
+                bibtex = self._fix_bibtex_fields(
+                    bibtex,
+                    doi,
+                    citation_count,
+                    abstract,
+                    impact_factor,
+                    crossref_metadata=crossref_metadata,
+                )
                 return bibtex
             elif response.status_code == 404:
                 print(f'  ERROR_INVALID: DOI not found in CrossRef: {doi}', file=sys.stderr)
@@ -755,7 +778,8 @@ class BibExtractor:
             return None
 
     def _fix_bibtex_fields(self, bibtex: str, doi: str, citation_count: Optional[int] = None,
-                           abstract: Optional[str] = None, impact_factor: Optional[str] = None) -> str:
+                           abstract: Optional[str] = None, impact_factor: Optional[str] = None,
+                           crossref_metadata: Optional[Dict] = None) -> str:
         """Fix and clean up BibTeX fields for consistent formatting.
 
         This method:
@@ -784,6 +808,11 @@ class BibExtractor:
             field_name = match.group(1).lower()
             field_value = match.group(2).strip()
             fields[field_name] = field_value
+
+        for field_name in list(fields.keys()):
+            fields[field_name] = self._clean_bibtex_text(fields[field_name])
+
+        fields = self._backfill_fields_from_crossref(fields, crossref_metadata)
 
         # Apply journal-specific fixes
         fields = self._apply_journal_specific_fixes(fields, self.detected_journal)
@@ -837,6 +866,51 @@ class BibExtractor:
 
         return new_bibtex
 
+    def _backfill_fields_from_crossref(self, fields: Dict, metadata: Optional[Dict]) -> Dict:
+        """Backfill missing BibTeX fields from structured CrossRef metadata."""
+        if not metadata:
+            return fields
+
+        def as_text(value):
+            if value is None:
+                return None
+            return self._clean_bibtex_text(str(value))
+
+        if not fields.get('volume') and metadata.get('volume'):
+            fields['volume'] = as_text(metadata.get('volume'))
+
+        if not fields.get('number') and metadata.get('issue'):
+            fields['number'] = as_text(metadata.get('issue'))
+
+        if not fields.get('pages'):
+            page_value = metadata.get('page')
+            article_number = (
+                metadata.get('article-number')
+                or metadata.get('article_number')
+                or metadata.get('article')
+            )
+            chosen = page_value or article_number
+            if chosen:
+                fields['pages'] = as_text(chosen)
+
+        return fields
+
+    def _clean_bibtex_text(self, value: str) -> str:
+        """Normalize text extracted from upstream metadata providers."""
+        if not value:
+            return value
+
+        value = value.replace('\n', ' ')
+        value = re.sub(r'<mml:mi>\s*He\s*</mml:mi>.*?<mml:mn>\s*3\s*</mml:mn>', '3He', value, flags=re.I | re.S)
+        value = re.sub(r'<[^>]+>', ' ', value)
+        value = value.replace('$_2$', '2')
+        value = value.replace('$_', '')
+        value = re.sub(r'\s+', ' ', value).strip()
+        value = value.replace(' andV-I', ' and V-I')
+        value = value.replace('V-Icharacteristics', 'V-I characteristics')
+        value = value.replace('NbSe 2', 'NbSe2')
+        return value
+
     def _fix_pages_format(self, pages: str) -> str:
         """Fix page format to use en-dash consistently."""
         # Convert single dash to en-dash, but preserve article numbers with suffixes
@@ -885,6 +959,8 @@ class BibExtractor:
         authors = fields.get('author', '')
         title = fields.get('title', '')
         doi = fields.get('doi', '')
+        eprint = fields.get('eprint', '')
+        archive_prefix = fields.get('archiveprefix', '')
 
         # Format authors
         first_author = ''
@@ -902,6 +978,10 @@ class BibExtractor:
             if venue:
                 # Use italic formatting for journal name
                 parts.append(f'\\textit{{{venue}}}')
+            elif archive_prefix and eprint:
+                parts.append(f'{archive_prefix}:{eprint}')
+            elif eprint:
+                parts.append(eprint)
             if volume:
                 parts.append(volume)
             if pages:
@@ -1170,11 +1250,66 @@ class BibExtractor:
                 return bibtex
             else:
                 print(f'  Warning: arXiv returned status {response.status_code}', file=sys.stderr)
-                return None
+                return self._fetch_from_arxiv_html(arxiv_id)
 
         except Exception as e:
             print(f'  Warning: arXiv fetch failed: {e}', file=sys.stderr)
-            return None
+            return self._fetch_from_arxiv_html(arxiv_id)
+
+    def _fetch_from_arxiv_html(self, arxiv_id: str) -> Optional[str]:
+        """Fallback HTML fetch for arXiv when the API is unavailable."""
+        try:
+            url = f'https://arxiv.org/abs/{arxiv_id}'
+            response = self.session.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                return self._arxiv_html_to_bibtex(response.text, arxiv_id)
+            print(f'  Warning: arXiv HTML returned status {response.status_code}', file=sys.stderr)
+        except Exception as e:
+            print(f'  Warning: arXiv HTML fetch failed: {e}', file=sys.stderr)
+        return None
+
+    def _arxiv_html_to_bibtex(self, html: str, arxiv_id: str) -> Optional[str]:
+        """Convert arXiv HTML meta tags to BibTeX."""
+        def meta_values(name: str) -> List[str]:
+            pattern = (
+                rf'<meta[^>]+name=["\']{re.escape(name)}["\'][^>]+content=["\']([^"\']+)["\']|'
+                rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']{re.escape(name)}["\']'
+            )
+            results = re.findall(pattern, html, flags=re.IGNORECASE)
+            values = []
+            for first, second in results:
+                if first:
+                    values.append(first)
+                elif second:
+                    values.append(second)
+            return values
+
+        titles = meta_values('citation_title')
+        authors = meta_values('citation_author')
+        dates = meta_values('citation_date')
+        abstracts = meta_values('citation_abstract')
+
+        title = titles[0].strip() if titles else ''
+        year = ''
+        if dates:
+            year_match = re.match(r'(\d{4})', dates[0].strip())
+            if year_match:
+                year = year_match.group(1)
+
+        authors_str = ' and '.join(authors) if authors else 'Unknown'
+        bibtex = f'@misc{{{arxiv_id},\n'
+        bibtex += f'  author    = {{{authors_str}}},\n'
+        bibtex += f'  title     = {{{title}}},\n'
+        if year:
+            bibtex += f'  year      = {{{year}}},\n'
+        bibtex += f'  eprint    = {{{arxiv_id}}},\n'
+        bibtex += '  archivePrefix = {arXiv},\n'
+        bibtex += f'  url       = {{https://arxiv.org/abs/{arxiv_id}}}'
+        if abstracts:
+            abstract = abstracts[0].strip().replace('{', '\\{').replace('}', '\\}')
+            bibtex += f',\n  abstract  = {{{abstract}}}'
+        bibtex += '\n}'
+        return bibtex
 
     def _pubmed_to_bibtex(self, data: Dict, pmid: str) -> Optional[str]:
         """Convert PubMed JSON to BibTeX."""

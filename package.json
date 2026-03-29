@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
-  "version": "1.0.0",
-  "description": "Zotero-like bibliography extraction and management for Claude Code and Codex",
+  "version": "2.0.0",
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
   "type": "module",
   "keywords": [
     "bibliography",
@@ -11,7 +11,8 @@
     "latex",
     "citations",
     "doi",
-    "arxiv"
+    "arxiv",
+    "smart-search"
   ],
   "repository": "https://github.com/fangrh/bibliography-skills",
   "author": "fangrh",
@@ -19,11 +20,10 @@
   "claude": {
     "commands": [
       "bib-extractor",
-      "bib-preview",
-      "bib-search"
+      "bib-searcher"
     ]
   },
   "scripts": {
-    "preview": "python3 scripts/bib_preview.py"
+    "searcher": "python3 scripts/bib_smart_search.py"
   }
 }

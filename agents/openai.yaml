@@ -1,7 +1,7 @@
 interface:
   display_name: "Bibliography Skills"
-  short_description: "Extract and manage BibTeX references"
-  default_prompt: "Use $bib-extractor to add a DOI, URL, PMID, or arXiv paper to my BibTeX file."
+  short_description: "Extract BibTeX and search drafts for citations"
+  default_prompt: "Use $bibliography-skills to either add a DOI to my BibTeX file or search a draft sentence-by-sentence and update citations using existing references first."
 
 policy:
   allow_implicit_invocation: true

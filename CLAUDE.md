@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project provides Zotero-like bibliography extraction and management tools for Claude Code and Codex. It includes Claude command files and a portable `SKILL.md` that Codex can discover from `~/.agents/skills/<skill-name>/`.
+This project provides two focused bibliography tools for Claude Code and Codex: `bib-extractor` for metadata capture and normalization, and `bib-searcher` for sentence-aware citation search and document updates.
 
 ## Installation
 
@@ -21,10 +21,8 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 | Command | Description |
 |---------|-------------|
-| `/bib-extractor` | Extract BibTeX from DOIs, URLs, PMIDs, arXiv IDs |
-| `/bib-preview` | Generate LaTeX preview from BibTeX files |
-| `/bib-search` | Search and extract bibliography from web |
-| `/bib-sync` | Sync library with online sources, update metadata |
+| `/bib-extractor` | Extract and normalize BibTeX from DOIs, URLs, PMIDs, arXiv IDs |
+| `/bib-searcher` | Read a document, reuse existing references first, then search and suggest or update citations |
 
 ## Quick Start
 
@@ -32,14 +30,8 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 # Extract a paper by DOI
 /bib-extractor 10.1038/s41586-021-03926-0
 
-# Preview your bibliography
-/bib-preview references.bib
-
-# Search for papers
-/bib-search "quantum computing"
-
-# Sync library with online sources
-/bib-sync references.bib
+# Analyze and update a draft
+/bib-searcher paper.tex
 ```
 
 ## Documentation

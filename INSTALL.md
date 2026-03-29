@@ -48,7 +48,7 @@ cp SKILL.md ./
 
 # Or copy to global skills directory
 mkdir -p ~/.claude/skills
-cp SKILL.md ~/.claude/skills/bib-extractor.md
+cp SKILL.md ~/.claude/skills/bibliography-skills.md
 ```
 
 ## Codex Installation
@@ -81,17 +81,14 @@ Test the installation:
 # Test bib-extractor
 /bib-extractor --help
 
-# Test bib-preview
-/bib-preview --help
-
-# Test bib-search
-/bib-search --help
+# Test bib-searcher
+/bib-searcher --help
 ```
 
 For Codex, verify by asking it to use the skill from any workspace after restart:
 
 ```text
-Use bib-extractor to add DOI 10.1038/s41586-021-03926-0 to references.bib
+Use bibliography-skills to add DOI 10.1038/s41586-021-03926-0 to references.bib
 ```
 
 ## Available Commands
@@ -99,19 +96,18 @@ Use bib-extractor to add DOI 10.1038/s41586-021-03926-0 to references.bib
 | Command | Description |
 |---------|-------------|
 | `/bib-extractor` | Extract BibTeX from DOIs, URLs, PMIDs, arXiv IDs |
-| `/bib-preview` | Generate LaTeX preview from BibTeX files |
-| `/bib-search` | Search and extract bibliography from web |
+| `/bib-searcher` | Analyze text, reuse existing references, and search/update citations |
 
 ## Uninstallation
 
 ```bash
 # Remove command files
 rm ~/.claude/commands/bib-extractor.md
-rm ~/.claude/commands/bib-preview.md
-rm ~/.claude/commands/bib-search.md
+rm ~/.claude/commands/bib-searcher.md
 
 # Remove scripts
 rm ~/.claude/scripts/bib_extractor.py
+rm ~/.claude/scripts/bib_smart_search.py
 ```
 
 For Codex:

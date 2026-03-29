@@ -15,6 +15,9 @@ import json
 from typing import Optional, Dict, List, Tuple, Set
 from pathlib import Path
 from dataclasses import dataclass
+import subprocess
+import tempfile
+import importlib.util
 
 try:
     import requests
@@ -101,8 +104,22 @@ class CitationNeedAnalyzer:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'BibSmartSearch/1.0'
+            'User-Agent': 'BibSmartSearch/1.0 (mailto:research@example.com)'
         })
+        self.extractor_module = None
+
+    def _openalex_abstract_to_text(self, inverted_index: Optional[Dict]) -> str:
+        """Convert an OpenAlex inverted abstract index to plain text."""
+        if not inverted_index:
+            return ''
+
+        positions = []
+        for word, indexes in inverted_index.items():
+            for index in indexes:
+                positions.append((index, word))
+
+        positions.sort(key=lambda item: item[0])
+        return ' '.join(word for _, word in positions)
 
     def analyze_sentence(self, sentence: str) -> SentenceAnalysis:
         """Analyze a single sentence for citation needs.
@@ -175,6 +192,76 @@ class CitationNeedAnalyzer:
             citation_suggestions=[]
         )
 
+    def extract_quantitative_claim(self, sentence: str) -> Optional[Dict]:
+        """Extract numeric values and nearby units from a sentence."""
+        matches = list(re.finditer(r'(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>%|[A-Za-zμµ]+)?', sentence))
+
+        values = []
+        units = []
+        snippets = []
+
+        for match in matches:
+            value = match.group('value')
+            unit = (match.group('unit') or '').strip()
+            if not value:
+                continue
+
+            start = max(0, match.start() - 18)
+            end = min(len(sentence), match.end() + 18)
+            snippet = sentence[start:end].strip()
+
+            values.append(value)
+            units.append(unit)
+            snippets.append(snippet)
+
+        if not values:
+            return None
+
+        return {
+            'values': values,
+            'units': units,
+            'snippets': snippets,
+        }
+
+    def score_quantitative_match(self, sentence: str, claim: Optional[Dict], candidate: Dict) -> float:
+        """Score how well a candidate matches the quantitative details in a sentence."""
+        if not claim:
+            return 0.0
+
+        haystack = ' '.join([
+            candidate.get('title', ''),
+            candidate.get('abstract', ''),
+            candidate.get('journal', ''),
+        ]).lower()
+
+        score = 0.0
+        for value, unit in zip(claim.get('values', []), claim.get('units', [])):
+            try:
+                numeric_value = float(value)
+            except ValueError:
+                continue
+
+            candidate_values = [
+                float(match.group(0))
+                for match in re.finditer(r'\d+(?:\.\d+)?', haystack)
+            ]
+
+            if any(abs(candidate_value - numeric_value) <= max(0.15, numeric_value * 0.08)
+                   for candidate_value in candidate_values):
+                score += 1.0
+
+            if unit and unit.lower() in haystack:
+                score += 0.35
+
+        lowered_sentence = sentence.lower()
+        shared_terms = 0
+        for token in ['critical temperature', 'tc', 'strain', 'superconduct', 'modulation']:
+            if token in lowered_sentence and token in haystack:
+                shared_terms += 1
+
+        score += shared_terms * 0.25
+        return score
+
     def _find_existing_citations(self, text: str) -> List[str]:
         """Find existing citations in text."""
         citations = []
@@ -193,6 +280,7 @@ class CitationNeedAnalyzer:
 
     def _extract_search_terms(self, sentence: str) -> List[str]:
         """Extract search terms from sentence."""
+        sentence = self._strip_latex(sentence)
         # Remove common words
         stop_words = {
             'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -204,8 +292,8 @@ class CitationNeedAnalyzer:
             'very', 'too', 'also', 'just', 'only', 'even', 'not', 'no'
         }
 
-        # Extract meaningful words
-        words = re.findall(r'\b[A-Za-z]{3,}\b', sentence.lower())
+        # Extract meaningful words, including material names like NbSe2
+        words = re.findall(r'\b[A-Za-z][A-Za-z0-9_-]{1,}\b', sentence.lower())
 
         # Filter and deduplicate
         keywords = []
@@ -219,10 +307,55 @@ class CitationNeedAnalyzer:
         phrases = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', sentence)
         keywords.extend([p.lower() for p in phrases if p.lower() not in seen])
 
+        # Physics/material tokens that often matter for literature search
+        special_terms = re.findall(r'\b(?:nbse2|mos2|wse2|tc|tdgl|epw|dft|tes|raman|phonon|vortex)\b', sentence.lower())
+        for term in special_terms:
+            if term not in seen:
+                keywords.insert(0, term)
+                seen.add(term)
+
         return keywords[:8]  # Limit to top 8 terms
 
+    def _strip_latex(self, text: str) -> str:
+        """Remove lightweight LaTeX markup for analysis/search."""
+        text = re.sub(r'\\textbf\{([^}]*)\}', r'\1', text)
+        text = re.sub(r'\\textit\{([^}]*)\}', r'\1', text)
+        text = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', text)
+        text = re.sub(r'\$([^$]*)\$', r'\1', text)
+        text = re.sub(r'\\[a-zA-Z]+', ' ', text)
+        text = text.replace('{', ' ').replace('}', ' ')
+        return re.sub(r'\s+', ' ', text).strip()
+
+    def _term_overlap_score(self, sentence: str, candidate: Dict) -> float:
+        """Score a candidate by token overlap with the sentence."""
+        source_terms = set(self._extract_search_terms(sentence))
+        candidate_text = ' '.join([
+            candidate.get('title', ''),
+            candidate.get('abstract', ''),
+            candidate.get('journal', ''),
+        ])
+        candidate_terms = set(self._extract_search_terms(candidate_text))
+        if not source_terms or not candidate_terms:
+            return 0.0
+        return len(source_terms & candidate_terms) / len(source_terms)
+
+    def rerank_citations(self, sentence: str, candidates: List[Dict]) -> List[Dict]:
+        """Rerank candidates using token overlap and quantitative-match signals."""
+        claim = self.extract_quantitative_claim(sentence)
+        reranked = []
+
+        for candidate in candidates:
+            score = self._term_overlap_score(sentence, candidate)
+            score += self.score_quantitative_match(sentence, claim, candidate)
+            enriched = dict(candidate)
+            enriched['score'] = round(score, 4)
+            reranked.append(enriched)
+
+        reranked.sort(key=lambda item: item.get('score', 0.0), reverse=True)
+        return reranked
+
     def search_for_citations(self, search_terms: List[str], max_results: int = 5,
-                            timeout: int = 15) -> List[Dict]:
+                            timeout: int = 15, allow_arxiv: bool = False) -> List[Dict]:
         """Search for relevant citations using the extracted terms.
 
         Args:
@@ -245,7 +378,7 @@ class CitationNeedAnalyzer:
             params = {
                 'query': query,
                 'rows': max_results,
-                'select': 'DOI,title,author,published-print,published-online,year,type'
+                'select': 'DOI,title,author,published-print,published-online,year,type,container-title,abstract'
             }
 
             response = self.session.get(url, params=params, timeout=timeout)
@@ -272,23 +405,110 @@ class CitationNeedAnalyzer:
                     if date_parts and date_parts[0]:
                         year = date_parts[0][0]
 
-                    results.append({
+                    record = {
                         'doi': item.get('DOI', ''),
                         'title': title,
                         'authors': ' and '.join(authors) if authors else 'Unknown',
                         'year': year,
+                        'journal': item.get('container-title', [''])[0] if item.get('container-title') else '',
+                        'abstract': item.get('abstract', '') or '',
                         'type': item.get('type', 'article'),
                         'source': 'CrossRef'
-                    })
+                    }
+                    if allow_arxiv or 'arxiv' not in record['doi'].lower():
+                        results.append(record)
+            elif response.status_code == 429:
+                print('  CrossRef rate-limited, falling back to OpenAlex', file=sys.stderr)
 
         except Exception as e:
             print(f'  CrossRef search error: {e}', file=sys.stderr)
 
+        if results:
+            return results
+
+        # Fallback: OpenAlex
+        try:
+            url = 'https://api.openalex.org/works'
+            params = {
+                'search': query,
+                'per-page': max_results,
+                'mailto': 'research@example.com',
+            }
+            response = self.session.get(url, params=params, timeout=timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                for item in data.get('results', []):
+                    doi = item.get('doi', '') or ''
+                    doi = doi.replace('https://doi.org/', '')
+                    authors = []
+                    for author in item.get('authorships', [])[:3]:
+                        display_name = author.get('author', {}).get('display_name', '')
+                        if display_name:
+                            authors.append(display_name)
+
+                    record = {
+                        'doi': doi,
+                        'title': item.get('title', ''),
+                        'authors': ' and '.join(authors) if authors else 'Unknown',
+                        'year': item.get('publication_year'),
+                        'journal': item.get('primary_location', {}).get('source', {}).get('display_name', ''),
+                        'abstract': self._openalex_abstract_to_text(item.get('abstract_inverted_index')),
+                        'type': item.get('type', 'article'),
+                        'source': 'OpenAlex',
+                    }
+                    journal_text = (record.get('journal') or '').lower()
+                    doi_text = (record.get('doi') or '').lower()
+                    if allow_arxiv or ('arxiv' not in journal_text and 'arxiv' not in doi_text):
+                        results.append(record)
+        except Exception as e:
+            print(f'  OpenAlex search error: {e}', file=sys.stderr)
+
         return results
+
+    def suggest_citations_for_sentence(self, sentence: str, max_results: int = 3,
+                                       timeout: int = 15,
+                                       allow_arxiv: bool = False) -> List[Dict]:
+        """Search and rerank candidates for a sentence."""
+        search_terms = self._extract_search_terms(sentence)
+        candidates = self.search_for_citations(
+            search_terms,
+            max_results=max(max_results * 2, 6),
+            timeout=timeout,
+            allow_arxiv=allow_arxiv,
+        )
+        reranked = self.rerank_citations(sentence, candidates)[:max_results]
+        for candidate in reranked:
+            doi = candidate.get('doi', '')
+            candidate['inline_citation'] = self.build_inline_citation(doi) if doi else ''
+        return reranked
+
+    def _load_bib_extractor_module(self):
+        if self.extractor_module is not None:
+            return self.extractor_module
+
+        script_path = Path(__file__).with_name('bib_extractor.py')
+        spec = importlib.util.spec_from_file_location('local_bib_extractor', script_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        self.extractor_module = module
+        return module
+
+    def build_inline_citation(self, doi: str, style: str = 'journal') -> str:
+        """Generate an inline citation string using the local bib_extractor."""
+        module = self._load_bib_extractor_module()
+        extractor = module.BibExtractor()
+        bibtex = extractor.extract_bibtex(doi)
+        if not bibtex:
+            return ''
+        return extractor.generate_inline_citation(bibtex, style=style)
 
     def analyze_document(self, content: str, auto_search: bool = True,
                         max_results_per_sentence: int = 3,
-                        timeout: int = 15) -> Dict:
+                        timeout: int = 15,
+                        audit_cited: bool = False,
+                        allow_arxiv: bool = False) -> Dict:
         """Analyze a full document for missing citations.
 
         Args:
@@ -332,10 +552,11 @@ class CitationNeedAnalyzer:
                 if auto_search and analysis.suggested_search_terms:
                     print(f'\n  [{i}] Searching for: {" ".join(analysis.suggested_search_terms[:4])}...', file=sys.stderr)
 
-                    citations = self.search_for_citations(
-                        analysis.suggested_search_terms,
+                    citations = self.suggest_citations_for_sentence(
+                        analysis.sentence,
                         max_results=max_results_per_sentence,
-                        timeout=timeout
+                        timeout=timeout,
+                        allow_arxiv=allow_arxiv,
                     )
 
                     analysis.citation_suggestions = citations
@@ -343,6 +564,15 @@ class CitationNeedAnalyzer:
 
                     if citations:
                         print(f'       Found {len(citations)} suggestions', file=sys.stderr)
+            elif analysis.has_citation and audit_cited and self.extract_quantitative_claim(analysis.sentence):
+                analysis.citation_suggestions = self.suggest_citations_for_sentence(
+                    analysis.sentence,
+                    max_results=max_results_per_sentence,
+                    timeout=timeout,
+                    allow_arxiv=allow_arxiv,
+                )
+                results['analyses'].append(analysis)
+                continue
             else:
                 results['sentences_ok'] += 1
 
@@ -397,6 +627,8 @@ class CitationNeedAnalyzer:
                         print(f'    - {cite["title"][:50]}...')
                         print(f'      {cite["authors"]} ({cite["year"]})')
                         print(f'      DOI: {cite["doi"]}')
+                        if cite.get('inline_citation'):
+                            print(f'      Inline: {cite["inline_citation"]}')
 
         # Show OK sentences if requested
         if show_ok:
@@ -453,6 +685,18 @@ def main():
     )
 
     parser.add_argument(
+        '--audit-cited',
+        action='store_true',
+        help='Also audit sentences that already have citations, especially quantitative claims'
+    )
+
+    parser.add_argument(
+        '--allow-arxiv',
+        action='store_true',
+        help='Include arXiv/preprint results. Default is to exclude them.'
+    )
+
+    parser.add_argument(
         '--format',
         choices=['text', 'json'],
         default='text',
@@ -477,7 +721,9 @@ def main():
         content,
         auto_search=not args.no_search,
         max_results_per_sentence=args.max_results,
-        timeout=args.timeout
+        timeout=args.timeout,
+        audit_cited=args.audit_cited,
+        allow_arxiv=args.allow_arxiv,
     )
 
     # Output results
