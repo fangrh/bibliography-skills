@@ -1,0 +1,7 @@
+interface:
+  display_name: "Bibliography Skills"
+  short_description: "Extract and manage BibTeX references"
+  default_prompt: "Use $bib-extractor to add a DOI, URL, PMID, or arXiv paper to my BibTeX file."
+
+policy:
+  allow_implicit_invocation: true

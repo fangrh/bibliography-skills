@@ -1,7 +1,6 @@
 ---
 name: bib-extractor
-description: Extract bibliography from DOIs/URLs and append to local .bib files. Like Zotero - provide a DOI or URL, fetch metadata, extract BibTeX, and append to your local bibliography file.
-allowed-tools: [Read, Write, Edit, Bash, Skill, mcp__web-search-prime__web_search_prime, mcp__web-reader__webReader]
+description: Use when adding bibliography entries from DOIs, URLs, PMIDs, or arXiv IDs into local BibTeX files, or when validating and cleaning up bibliography metadata.
 ---
 
 # Bibliography Extractor

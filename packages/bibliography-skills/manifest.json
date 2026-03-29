@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
   "version": "1.1.0",
-  "description": "Zotero-like bibliography extraction and management for Claude Code with abstract extraction, note generation, and citation tracking",
+  "description": "Zotero-like bibliography extraction and management for Claude Code and Codex with abstract extraction, note generation, and citation tracking",
   "author": "fangrh",
   "license": "MIT",
   "repository": "fangrh/bibliography-skills-marketplace",

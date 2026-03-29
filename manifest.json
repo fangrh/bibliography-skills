@@ -1,12 +1,12 @@
 {
   "name": "bibliography-skills",
   "version": "1.3.0",
-  "description": "Zotero-like bibliography extraction and management for Claude Code",
-  "author": "Your Name",
+  "description": "Zotero-like bibliography extraction and management for Claude Code and Codex",
+  "author": "fangrh",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/bibliography-skills"
+    "url": "https://github.com/fangrh/bibliography-skills"
   },
   "keywords": [
     "bibliography",

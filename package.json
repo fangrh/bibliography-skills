@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
   "version": "1.0.0",
-  "description": "Zotero-like bibliography extraction and management for Claude Code",
+  "description": "Zotero-like bibliography extraction and management for Claude Code and Codex",
   "type": "module",
   "keywords": [
     "bibliography",

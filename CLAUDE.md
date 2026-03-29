@@ -1,8 +1,8 @@
-# Bibliography Skills for Claude Code
+# Bibliography Skills for Claude Code and Codex
 
 ## Overview
 
-This project provides Zotero-like bibliography extraction and management tools for Claude Code. Includes three commands for extracting, previewing, and searching bibliography entries.
+This project provides Zotero-like bibliography extraction and management tools for Claude Code and Codex. It includes Claude command files and a portable `SKILL.md` that Codex can discover from `~/.agents/skills/<skill-name>/`.
 
 ## Installation
 
@@ -46,7 +46,7 @@ See [INSTALL.md](INSTALL.md) for detailed instructions.
 
 - [README.md](README.md) - Full documentation
 - [INSTALL.md](INSTALL.md) - Installation guide
-- [SKILL.md](SKILL.md) - Skill definition for Claude Code
+- [SKILL.md](SKILL.md) - Portable skill definition for Claude Code and Codex
 
 ## License
 
