@@ -1722,6 +1722,159 @@ class BibSync:
 
         return json.dumps(prompt_data, indent=2)
 
+    def load_analysis_results(self, analysis_file: str) -> Dict[str, Dict]:
+        """Load citation analysis results from bib-analyze JSON output.
+
+        Args:
+            analysis_file: Path to JSON file from bib-analyze --format json
+
+        Returns:
+            Dict mapping citation keys to their analysis results
+        """
+        try:
+            with open(analysis_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print(f'Warning: Analysis file not found: {analysis_file}', file=sys.stderr)
+            return {}
+        except json.JSONDecodeError:
+            print(f'Warning: Invalid JSON in analysis file: {analysis_file}', file=sys.stderr)
+            return {}
+
+        # Build lookup by citation key and DOI
+        results = {}
+        for analysis in data.get('analyses', []):
+            suggestions = analysis.get('suggestions', [])
+            for suggestion in suggestions:
+                doi = suggestion.get('doi', '')
+                title = suggestion.get('title', '')
+                authors = suggestion.get('authors', '')
+                year = suggestion.get('year')
+
+                # Create entry key from suggestions
+                if doi:
+                    results[doi] = {
+                        'title': title,
+                        'authors': authors,
+                        'year': year,
+                        'doi': doi,
+                        'confidence': analysis.get('confidence', 0),
+                        'needs_citation': analysis.get('needs_citation', False),
+                        'source_sentence': analysis.get('sentence', '')[:100]
+                    }
+
+        print(f'Loaded {len(results)} analysis results from {analysis_file}', file=sys.stderr)
+        return results
+
+    def sync_with_analysis(self, bib_file: str, analysis_file: str,
+                          dry_run: bool = False) -> Dict:
+        """Sync library using bib-analyze results for scoring.
+
+        Workflow:
+        1. Load analysis results from bib-analyze
+        2. For each suggested citation:
+           - Check if exists in library (by DOI)
+           - If exists: Update note with new context
+           - If not exists: Add to library with score
+        3. Generate report
+
+        Args:
+            bib_file: Path to BibTeX file
+            analysis_file: Path to JSON file from bib-analyze
+            dry_run: Preview changes without modifying
+
+        Returns:
+            Statistics dict
+        """
+        stats = {
+            'total_analyzed': 0,
+            'already_exists': 0,
+            'added_new': 0,
+            'notes_updated': 0,
+            'skipped': 0,
+            'results': []
+        }
+
+        # Load existing library
+        entries, header = self.parse_bib_file(bib_file)
+        existing_dois = {}
+        for entry in entries:
+            doi = entry.get('fields', {}).get('doi', '').lower()
+            if doi:
+                existing_dois[doi] = entry
+
+        # Load analysis results
+        analysis = self.load_analysis_results(analysis_file)
+        stats['total_analyzed'] = len(analysis)
+
+        print(f'\nSyncing with analysis results...', file=sys.stderr)
+        print(f'Library has {len(existing_dois)} DOIs, {len(analysis)} suggestions', file=sys.stderr)
+
+        for doi, result in analysis.items():
+            title = result.get('title', 'Unknown')
+            confidence = result.get('confidence', 0)
+
+            print(f'\n  [{doi}] {title[:40]}... (confidence: {confidence:.0%})', file=sys.stderr)
+
+            if doi.lower() in existing_dois:
+                # Already exists - update note
+                entry = existing_dois[doi.lower()]
+                existing_note = entry.get('fields', {}).get('note', '')
+                new_context = result.get('source_sentence', '')
+
+                if new_context and new_context not in existing_note:
+                    updated_note = f"{existing_note}\nAlso cited for: {new_context}".strip()
+                    if not dry_run:
+                        entry['fields']['note'] = updated_note
+                    stats['notes_updated'] += 1
+                    stats['results'].append({
+                        'doi': doi,
+                        'action': 'updated_note',
+                        'title': title[:50]
+                    })
+                    print(f'    → Updated note (already in library)', file=sys.stderr)
+                else:
+                    stats['already_exists'] += 1
+                    print(f'    → Already in library', file=sys.stderr)
+            else:
+                # New entry - add to library
+                if confidence >= 0.5:  # Only add high-confidence suggestions
+                    if not dry_run:
+                        # Fetch BibTeX and add
+                        bibtex = self.extractor.fetch_from_crossref(doi)
+                        if bibtex:
+                            # Add to file
+                            key = self.extractor.generate_citation_key(bibtex, set())
+                            # Append to bib file
+                            with open(bib_file, 'a', encoding='utf-8') as f:
+                                f.write(f'\n\n{bibtex}')
+                            stats['added_new'] += 1
+                            stats['results'].append({
+                                'doi': doi,
+                                'action': 'added',
+                                'title': title[:50],
+                                'key': key
+                            })
+                            print(f'    → Added to library (key: {key})', file=sys.stderr)
+                        else:
+                            stats['skipped'] += 1
+                            print(f'    → Skipped (could not fetch BibTeX)', file=sys.stderr)
+                    else:
+                        stats['skipped'] += 1
+                        print(f'    → Skipped (dry run)', file=sys.stderr)
+                else:
+                    stats['skipped'] += 1
+                    print(f'    → Skipped (low confidence: {confidence:.0%})', file=sys.stderr)
+
+        print('\n' + 'Sync Summary:', file=sys.stderr)
+        print(f'    Analyzed: {stats["total_analyzed"]}', file=sys.stderr)
+        print(f'    Already exists: {stats["already_exists"]}', file=sys.stderr)
+        print(f'    Notes updated: {stats["notes_updated"]}', file=sys.stderr)
+        print(f'    Added new: {stats["added_new"]}', file=sys.stderr)
+        print(f'    Skipped: {stats["skipped"]}', file=sys.stderr)
+
+        return stats
+
     def parse_llm_validation_response(self, response_text: str) -> Dict:
         """Parse LLM validation response.
 
@@ -2084,10 +2237,52 @@ def main():
         help='Use full journal names instead of abbreviations'
     )
 
+    parser.add_argument(
+        '--analysis-file',
+        help='JSON file from bib-analyze to use for scoring-based sync'
+    )
+
+    parser.add_argument(
+        '--llm-validate',
+        action='store_true',
+        help='Generate LLM validation prompts for agent evaluation'
+    )
+
+    parser.add_argument(
+        '--documents',
+        nargs='+',
+        help='Document files to scan for citation contexts (for --llm-validate)'
+    )
+
     args = parser.parse_args()
 
     # Create syncer
     syncer = BibSync(timeout=args.timeout, delay=args.delay, use_full_journal_name=args.full_journal_name)
+
+    # Check for analysis-based sync
+    if args.analysis_file:
+        print(f'Using analysis file: {args.analysis_file}', file=sys.stderr)
+        stats = syncer.sync_with_analysis(
+            args.bib_file,
+            args.analysis_file,
+            dry_run=args.dry_run
+        )
+        syncer.print_report({'total': stats['total_analyzed'], **stats})
+        return
+
+    # Check for LLM validation mode
+    if args.llm_validate:
+        if not args.documents:
+            print('Error: --documents required for LLM validation', file=sys.stderr)
+            sys.exit(1)
+        stats = syncer.smart_sync(
+            args.bib_file,
+            list(args.documents),
+            use_llm=True,
+            dry_run=args.dry_run
+        )
+        syncer.print_report(stats)
+        return
 
     # Run sync
     stats = syncer.sync_library(
