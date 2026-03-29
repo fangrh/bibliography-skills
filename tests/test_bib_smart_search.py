@@ -330,6 +330,85 @@ class BibSmartSearchTests(unittest.TestCase):
 
             self.assertEqual(reused.strip(), existing.strip())
 
+    def test_bib_searcher_filters_non_materialized_citations_when_bib_file_required(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        sentence = "A supported claim requires a finalized bibliography entry."
+        analyzer.search_for_citations = lambda *args, **kwargs: [
+            {
+                "doi": "10.1000/example",
+                "title": "Example supported claim",
+                "abstract": "Supported claim example abstract",
+                "journal": "Example Journal",
+            }
+        ]
+        analyzer.rerank_citations = lambda *args, **kwargs: [
+            {
+                "doi": "10.1000/example",
+                "title": "Example supported claim",
+                "abstract": "Supported claim example abstract",
+                "journal": "Example Journal",
+                "score": 1.0,
+            }
+        ]
+        analyzer._finalize_bibliography_entry = lambda doi, bib_file: None
+
+        results = analyzer.suggest_citations_for_sentence(
+            sentence,
+            max_results=3,
+            bib_file="references.bib",
+        )
+
+        self.assertEqual(results, [])
+
+    def test_bib_searcher_uses_existing_bib_entry_for_final_inline_citation(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        sentence = "A supported claim requires a finalized bibliography entry."
+        analyzer.search_for_citations = lambda *args, **kwargs: [
+            {
+                "doi": "10.1103/PhysRevB.97.205443",
+                "title": "Interfacing planar superconducting qubits with high overtone bulk acoustic phonons",
+                "abstract": "Superconducting qubits coupled to bulk acoustic phonons.",
+                "journal": "Physical Review B",
+            }
+        ]
+        analyzer.rerank_citations = lambda *args, **kwargs: [
+            {
+                "doi": "10.1103/PhysRevB.97.205443",
+                "title": "Interfacing planar superconducting qubits with high overtone bulk acoustic phonons",
+                "abstract": "Superconducting qubits coupled to bulk acoustic phonons.",
+                "journal": "Physical Review B",
+                "score": 1.0,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bib_path = Path(tmpdir) / "references.bib"
+            bib_path.write_text(
+                """@article{ExistingKey,
+  author = {Kervinen, Mikael and Rissanen, Ilkka and Sillanpaa, Mika},
+  title = {Interfacing planar superconducting qubits with high overtone bulk acoustic phonons},
+  journal = {Phys. Rev. B},
+  volume = {97},
+  pages = {205443},
+  year = {2018},
+  doi = {10.1103/physrevb.97.205443}
+}""",
+                encoding="utf-8",
+            )
+
+            results = analyzer.suggest_citations_for_sentence(
+                sentence,
+                max_results=3,
+                bib_file=str(bib_path),
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertIn("Phys. Rev. B", results[0]["inline_citation"])
+
 
 if __name__ == "__main__":
     unittest.main()

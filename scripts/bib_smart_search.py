@@ -526,9 +526,32 @@ class CitationNeedAnalyzer:
 
         return results
 
+    def _finalize_bibliography_entry(self, doi: str, bib_file: str) -> Optional[str]:
+        """Ensure a DOI is backed by a concrete BibTeX entry in bib_file."""
+        module = self._load_bib_extractor_module()
+        extractor = module.BibExtractor()
+
+        existing_entry = extractor.find_existing_entry(doi, bib_file)
+        if existing_entry:
+            return existing_entry
+
+        bibtex = extractor.extract_bibtex(doi, bib_file=bib_file)
+        if not bibtex:
+            return None
+
+        bib_path = Path(bib_file)
+        bib_path.parent.mkdir(parents=True, exist_ok=True)
+        if not bib_path.exists():
+            bib_path.touch()
+
+        existing_keys = extractor.read_existing_keys(bib_file)
+        extractor.append_to_file(bibtex, bib_file, existing_keys)
+        return extractor.find_existing_entry(doi, bib_file) or bibtex
+
     def suggest_citations_for_sentence(self, sentence: str, max_results: int = 3,
                                        timeout: int = 15,
-                                       allow_arxiv: bool = False) -> List[Dict]:
+                                       allow_arxiv: bool = False,
+                                       bib_file: Optional[str] = None) -> List[Dict]:
         """Search and rerank candidates for a sentence."""
         search_terms = self._extract_search_terms(sentence)
         candidates = self.search_for_citations(
@@ -539,10 +562,31 @@ class CitationNeedAnalyzer:
         )
         reranked = self.rerank_citations(sentence, candidates)
         reranked = [candidate for candidate in reranked if candidate.get('score', 0.0) > 0.0][:max_results]
+        finalized = []
         for candidate in reranked:
             doi = candidate.get('doi', '')
+            if not doi:
+                candidate['inline_citation'] = ''
+                if not bib_file:
+                    finalized.append(candidate)
+                continue
+
+            if bib_file:
+                bibtex = self._finalize_bibliography_entry(doi, bib_file)
+                if not bibtex:
+                    continue
+                module = self._load_bib_extractor_module()
+                extractor = module.BibExtractor()
+                candidate['inline_citation'] = extractor.generate_inline_citation(
+                    bibtex,
+                    style='journal',
+                )
+                finalized.append(candidate)
+                continue
+
             candidate['inline_citation'] = self.build_inline_citation(doi) if doi else ''
-        return reranked
+            finalized.append(candidate)
+        return finalized
 
     def _load_bib_extractor_module(self):
         if self.extractor_module is not None:
@@ -570,7 +614,8 @@ class CitationNeedAnalyzer:
                         max_results_per_sentence: int = 3,
                         timeout: int = 15,
                         audit_cited: bool = False,
-                        allow_arxiv: bool = False) -> Dict:
+                        allow_arxiv: bool = False,
+                        bib_file: Optional[str] = None) -> Dict:
         """Analyze a full document for missing citations.
 
         Args:
@@ -619,6 +664,7 @@ class CitationNeedAnalyzer:
                         max_results=max_results_per_sentence,
                         timeout=timeout,
                         allow_arxiv=allow_arxiv,
+                        bib_file=bib_file,
                     )
 
                     analysis.citation_suggestions = citations
@@ -632,6 +678,7 @@ class CitationNeedAnalyzer:
                     max_results=max_results_per_sentence,
                     timeout=timeout,
                     allow_arxiv=allow_arxiv,
+                    bib_file=bib_file,
                 )
                 results['analyses'].append(analysis)
                 continue
@@ -759,6 +806,11 @@ def main():
     )
 
     parser.add_argument(
+        '--bib-file',
+        help='Target bibliography file. Final citations must exist here when provided.'
+    )
+
+    parser.add_argument(
         '--format',
         choices=['text', 'json'],
         default='text',
@@ -786,6 +838,7 @@ def main():
         timeout=args.timeout,
         audit_cited=args.audit_cited,
         allow_arxiv=args.allow_arxiv,
+        bib_file=args.bib_file,
     )
 
     # Output results

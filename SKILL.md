@@ -12,6 +12,8 @@ This repository now exposes two maintained bibliography workflows:
 - `bib-extractor`: fetch and normalize BibTeX entries from DOIs, URLs, PMIDs, and arXiv IDs
 - `bib-searcher`: read a document sentence by sentence, decide which statements need support, reuse existing references first, and search for new citations only when necessary
 
+Hard rule: any citation that ends up in a draft must come from `bib-extractor`. `bib-searcher` can search and rerank candidate papers, but a citation is not final unless `bib-extractor` has either reused the matching entry from the target `.bib` file or normalized the paper into that `.bib` file first.
+
 Use this skill when you want Codex to help maintain `.bib` files and citation-heavy drafts without manually formatting BibTeX entries.
 
 ## Natural-Language Routing
@@ -55,8 +57,8 @@ Core behavior:
 3. Flag factual or quantitative claims that need support
 4. Reuse the current `.bib` file first when possible
 5. Search external sources only for unsupported claims
-6. Hand any newly selected DOI back to `bib-extractor` for normalization
-7. Return inline citation suggestions in `Journal, volume, page, (year)` format
+6. Hand any newly selected DOI back to `bib-extractor` for normalization into the target `.bib`
+7. Return inline citation suggestions in `Journal, volume, page, (year)` format only after that normalization step succeeds
 
 Examples:
 
