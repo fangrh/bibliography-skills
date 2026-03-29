@@ -1,0 +1,36 @@
+{
+  "name": "bibliography-skills",
+  "version": "1.0.0",
+  "description": "Zotero-like bibliography extraction and management for Claude Code",
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/bibliography-skills"
+  },
+  "keywords": [
+    "bibliography",
+    "bibtex",
+    "zotero",
+    "academic",
+    "latex",
+    "citations",
+    "doi",
+    "arxiv"
+  ],
+  "claude": {
+    "commands": [
+      "bib-extractor",
+      "bib-preview",
+      "bib-search"
+    ],
+    "dependencies": [
+      "requests"
+    ]
+  },
+  "install": {
+    "commands_dir": "commands",
+    "scripts_dir": "scripts",
+    "dependencies": "requirements.txt"
+  }
+}
