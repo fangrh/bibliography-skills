@@ -1,6 +1,6 @@
 # /bib-preview - Generate LaTeX Preview from BibTeX
 
-Convert BibTeX file to formatted LaTeX preview with full support for note, abstract, and refkey fields.
+Generate formatted LaTeX preview from BibTeX with numbered references, hyperlinks, notes, abstracts, and AI-suggested citation sentences.
 
 ## Usage
 
@@ -15,11 +15,13 @@ Convert BibTeX file to formatted LaTeX preview with full support for note, abstr
 | `bib_file` | BibTeX file to convert | Yes |
 | `--output, -o` | Output LaTeX file (default: preview.tex) | Optional |
 | `--bibliography-only` | Generate bibliography section only (for inclusion in other docs) | Optional |
-| `--template, -t` | Custom LaTeX template file with `%ENTRIES%` marker | Optional |
+| `--template, -t` | Custom LaTeX template file with `%%ENTRIES%%` marker | Optional |
+| `--tex` | TeX file to check for existing citations (for AI suggestions) | Optional |
+| `--no-suggestions` | Disable AI-generated citation suggestions | Optional |
 
 ## Examples
 
-```
+```bash
 # Generate LaTeX preview
 /bib-preview references.bib
 
@@ -31,66 +33,114 @@ Convert BibTeX file to formatted LaTeX preview with full support for note, abstr
 
 # Use custom template
 /bib-preview references.bib --template mytemplate.tex -o output.tex
+
+# Check existing TeX file for AI suggestions
+/bib-preview references.bib --tex document.tex
+
+# Disable AI suggestions
+/bib-preview references.bib --no-suggestions
 ```
 
 ## Output Format
 
-### Full Preview Mode (default)
+Each entry includes:
+
+1. **Numbered item** with bold citation key
+2. **Author and year** with title in quotes
+3. **Journal/venue** in italics
+4. **DOI** as clickable hyperlink (`\href{https://doi.org/...}{DOI}`)
+5. **URL** as clickable hyperlink (if no DOI)
+6. **Note** field displayed as "Note: {content}"
+7. **Abstract** field displayed as "Abstract: {content}" in footnotesize
+8. **AI suggestions** for citing this reference (if TeX file provided and citation not used)
+
+### Sample Output
+
+```latex
+\item[\textbf{1}] \textbf{Smith2024Quantum}
+Smith, J. and Doe, A. (2024) ``Quantum coherence in photonic systems'' \textit{Nature}
+DOI: \href{https://doi.org/10.1038/xxx}{10.1038/xxx}
+
+\vspace{0.5em}
+\textit{Note:} Important for understanding quantum optics
+
+\vspace{0.5em}
+\textbf{Abstract:} \\
+\footnotesize{We demonstrate...}
+
+\vspace{0.5em}
+\textbf{Suggested Citations:} \\
+\footnotesize{Recent work by Smith et al. demonstrated...}
+```
+
+## Full Preview Mode (default)
 
 Generates a complete LaTeX document with:
 - `\documentclass[12pt]{article}`
-- `biblatex` package with authoryear style
-- Formatted entries with bold authors, italic journals
-- Note field displayed as "Note: {content}"
-- Abstract field displayed as "Abstract: {content}" in small font
-- DOI/URL as clickable links
-- Citations ready for compilation
+- `hyperref` package for clickable links
+- `geometry` package for margins
+- Numbered itemize list
+- Formatted entries with all fields
 
-### Bibliography-Only Mode
+## Bibliography-Only Mode
 
-Generates just the bibliography entries formatted for inclusion in other documents.
+Generates just the itemize entries formatted for inclusion in other documents.
 
 ## Custom Templates
 
-Create a template with `%ENTRIES%` marker:
+Create a template with `%%ENTRIES%%` marker:
 
 ```latex
 \documentclass[12pt]{article}
-\usepackage[style=authoryear,backend=biber]{biblatex}
-\usepackage[margin=1in]{geometry}
 \usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
 
 \begin{document}
 
 \section*{Bibliography}
 
-%ENTRIES%
-[ Entries will be inserted here ]
-
-\printbibliography[heading=none]
+\begin{itemize}
+%%ENTRIES%%
+\end{itemize}
 
 \end{document}
 ```
 
 ## Compilation
 
-After generating the LaTeX file, compile with:
+After generating LaTeX file, compile with:
 
 ```bash
-pdflatex preview.tex && biber preview.tex && pdflatex preview.tex
+pdflatex preview.tex
 ```
+
+Note: This script generates plain LaTeX without BibTeX/biblatex dependency for the preview.
 
 ## Process
 
 1. Parse BibTeX file for all entries
 2. Extract all fields including note and abstract
-3. Format with proper LaTeX styling
-4. Insert into template (or use built-in format)
-5. Generate compilation-ready `.tex` file
+3. Format with proper LaTeX styling (itemize, itemize)
+4. Add hyperlinks for DOI/URL
+5. Check TeX file for existing citations
+6. Call AI to generate suggested citation sentences (if needed)
+7. Generate compilation-ready `.tex` file
+
+## AI Citation Suggestions
+
+When a TeX file is provided (`--tex`), the script:
+1. Checks if citation key is already used in the TeX file
+2. If NOT used, calls AI to suggest 1-2 sentences
+3. Includes suggestions in the output
+
+Requires `ANTHROPIC_API_KEY` environment variable for AI suggestions.
 
 ## Notes
 
 - Supports UTF-8 encoding for international characters
-- Removes underscores from citation keys for display
-- Properly formats page ranges with en-dashes
-- Handles multiple entry types (article, misc, book, etc.)
+- Handles multiple entry types (article, misc, book, inproceedings)
+- Page ranges formatted with en-dashes (`--`)
+- Blank lines between entries for readability
+- AI suggestions optional and require API key
