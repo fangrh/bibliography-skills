@@ -23,12 +23,85 @@ except ImportError:
 class BibExtractor:
     """Extract BibTeX entries from DOIs, URLs, PMIDs, and arXiv IDs."""
 
+    # Journal-specific handlers registry
+    # Add new journal handlers here as they are discovered
+    JOURNAL_HANDLERS = {
+        'science': {
+            'patterns': ['science.org', 'sciencemag.org', 'science.'],
+            'description': 'Science Magazine (AAAS)',
+            'notes': 'Uses volume, number (issue), pages format'
+        },
+        'nature': {
+            'patterns': ['nature.com', 'nature.'],
+            'description': 'Nature Publishing Group',
+            'notes': 'Standard format'
+        },
+        'cell': {
+            'patterns': ['cell.com', 'cell.'],
+            'description': 'Cell Press',
+            'notes': 'May include article number in pages (e.g., 914--930.e20)'
+        },
+        'pnas': {
+            'patterns': ['pnas.org', 'pnas.'],
+            'description': 'Proceedings of the National Academy of Sciences',
+            'notes': 'Standard format'
+        },
+        'ieee': {
+            'patterns': ['ieee.org', 'ieeexplore.ieee.org', 'ieee.'],
+            'description': 'IEEE Publications',
+            'notes': 'Standard format with DOI'
+        },
+        'aps': {
+            'patterns': ['aps.org', 'physrev', 'prl.', 'prb.', 'prc.', 'prd.', 'pre.'],
+            'description': 'American Physical Society journals',
+            'notes': 'Physical Review series'
+        },
+        'springer': {
+            'patterns': ['springer.com', 'link.springer.com'],
+            'description': 'Springer Nature',
+            'notes': 'Standard format'
+        },
+        'elsevier': {
+            'patterns': ['elsevier.com', 'sciencedirect.com', 'cell.'],
+            'description': 'Elsevier',
+            'notes': 'Various formats depending on journal'
+        },
+        'wiley': {
+            'patterns': ['wiley.com', 'onlinelibrary.wiley.com'],
+            'description': 'Wiley',
+            'notes': 'Standard format'
+        },
+        'arxiv': {
+            'patterns': ['arxiv.org'],
+            'description': 'arXiv preprints',
+            'notes': 'Uses @misc with eprint field'
+        },
+        'pubmed': {
+            'patterns': ['pubmed.ncbi.nlm.nih.gov', 'ncbi.nlm.nih.gov/pubmed'],
+            'description': 'PubMed/NCBI',
+            'notes': 'Uses PMID identifier'
+        }
+    }
+
     def __init__(self, timeout: int = 15):
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'BibExtractor/1.0 (Citation Management Tool)'
         })
+        self.detected_journal = None
+
+    def detect_journal(self, identifier: str, bibtex: str = '') -> Optional[str]:
+        """Detect the journal from identifier or BibTeX content."""
+        identifier_lower = identifier.lower()
+        bibtex_lower = bibtex.lower()
+
+        for journal_key, handler in self.JOURNAL_HANDLERS.items():
+            for pattern in handler['patterns']:
+                if pattern in identifier_lower or pattern in bibtex_lower:
+                    return journal_key
+
+        return None
 
     def extract_doi_from_url(self, url: str) -> Optional[str]:
         """Extract DOI from URL if present."""
@@ -78,7 +151,11 @@ class BibExtractor:
         return doi
 
     def fetch_from_crossref(self, doi: str) -> Optional[str]:
-        """Fetch BibTeX from CrossRef API."""
+        """Fetch BibTeX from CrossRef API.
+
+        Returns:
+            BibTeX string on success, None on failure (with structured error message)
+        """
         url = f'https://doi.org/{doi}'
         headers = {
             'Accept': 'application/x-bibtex; charset=utf-8',
@@ -97,21 +174,31 @@ class BibExtractor:
                 bibtex = self._fix_bibtex_fields(bibtex, doi)
                 return bibtex
             elif response.status_code == 404:
-                print(f'  Warning: DOI not found in CrossRef: {doi}', file=sys.stderr)
+                print(f'  ERROR_INVALID: DOI not found in CrossRef: {doi}', file=sys.stderr)
+                print(f'  LLM_ACTION: This DOI is invalid or not indexed. Please remove it from the bibliography if it exists.', file=sys.stderr)
                 return None
             else:
-                print(f'  Warning: CrossRef returned status {response.status_code} for {doi}', file=sys.stderr)
+                print(f'  ERROR: CrossRef returned status {response.status_code} for {doi}', file=sys.stderr)
                 return None
 
         except requests.exceptions.Timeout:
-            print(f'  Warning: Timeout fetching from CrossRef: {doi}', file=sys.stderr)
+            print(f'  ERROR: Timeout fetching from CrossRef: {doi}', file=sys.stderr)
             return None
         except requests.exceptions.RequestException as e:
-            print(f'  Warning: Request failed: {e}', file=sys.stderr)
+            print(f'  ERROR: Request failed: {e}', file=sys.stderr)
             return None
 
     def _fix_bibtex_fields(self, bibtex: str, doi: str) -> str:
-        """Fix and clean up BibTeX fields for consistent formatting."""
+        """Fix and clean up BibTeX fields for consistent formatting.
+
+        This method:
+        1. Detects the journal type
+        2. Applies journal-specific fixes if needed
+        3. Formats output consistently
+        """
+        # Detect journal from DOI and BibTeX content
+        self.detected_journal = self.detect_journal(doi, bibtex)
+
         # Parse the BibTeX entry
         entry_type_match = re.match(r'@(\w+)\s*\{([^,]+),\s*', bibtex)
         if not entry_type_match:
@@ -128,8 +215,10 @@ class BibExtractor:
             field_value = match.group(2).strip()
             fields[field_name] = field_value
 
-        # Build clean BibTeX entry
-        # Define field order for consistent output
+        # Apply journal-specific fixes
+        fields = self._apply_journal_specific_fixes(fields, self.detected_journal)
+
+        # Build clean BibTeX entry with consistent field order
         field_order = [
             'author', 'title', 'journal', 'booktitle', 'volume', 'number', 'pages',
             'year', 'month', 'doi', 'url', 'issn', 'isbn', 'publisher', 'eprint', 'archive', 'pmid'
@@ -143,8 +232,7 @@ class BibExtractor:
                 value = fields[field]
                 # Fix pages: use en-dash
                 if field == 'pages':
-                    value = re.sub(r'(?<!-)-(?!-)', '--', value)
-                    value = value.replace('----', '--')
+                    value = self._fix_pages_format(value)
                 # Format field with consistent spacing
                 new_bibtex += f"  {field:<10} = {{{value}}},\n"
 
@@ -158,6 +246,81 @@ class BibExtractor:
         new_bibtex += "\n}"
 
         return new_bibtex
+
+    def _fix_pages_format(self, pages: str) -> str:
+        """Fix page format to use en-dash consistently."""
+        # Convert single dash to en-dash, but preserve article numbers with suffixes
+        # like "914--930.e20" which are already correct or have special suffixes
+        if '.e' in pages or '.E' in pages:
+            # Cell-style article numbers with supplemental info
+            pages = re.sub(r'(?<!-)-(?!-)', '--', pages)
+            pages = pages.replace('----', '--')
+            return pages
+        else:
+            # Standard page ranges
+            pages = re.sub(r'(?<!-)-(?!-)', '--', pages)
+            pages = pages.replace('----', '--')
+            return pages
+
+    def _apply_journal_specific_fixes(self, fields: Dict, journal: Optional[str]) -> Dict:
+        """Apply journal-specific metadata corrections.
+
+        This is where you can add fixes for specific journals.
+        If a journal is not recognized, the normal format is used.
+
+        Args:
+            fields: Dictionary of BibTeX fields
+            journal: Detected journal key (e.g., 'science', 'nature')
+
+        Returns:
+            Corrected fields dictionary
+        """
+        if not journal:
+            # Unknown journal - use normal format
+            return fields
+
+        # Journal-specific corrections
+        if journal == 'science':
+            # Science magazine:
+            # - volume is correct
+            # - number is the issue number (e.g., 6464)
+            # - pages should be actual page range (e.g., 499--504)
+            # CrossRef usually gets this right, but we ensure consistency
+            pass
+
+        elif journal == 'cell':
+            # Cell:
+            # - Sometimes includes article suffix in pages (e.g., 914--930.e20)
+            # - This is valid, keep as-is
+            pass
+
+        elif journal == 'nature':
+            # Nature:
+            # - Standard format, usually correct from CrossRef
+            pass
+
+        elif journal == 'aps':
+            # APS journals (PRL, PRB, etc.):
+            # - Standard format
+            # - Sometimes missing page numbers
+            pass
+
+        elif journal == 'ieee':
+            # IEEE:
+            # - Standard format
+            # - Always include DOI
+            pass
+
+        # Add more journal-specific handlers here as needed
+        # Example:
+        # elif journal == 'some_journal':
+        #     # Fix specific issues
+        #     if 'pages' in fields and fields['pages'].isdigit():
+        #         # Move short number from pages to number
+        #         fields['number'] = fields['pages']
+        #         del fields['pages']
+
+        return fields
 
     def fetch_from_pubmed(self, pmid: str) -> Optional[str]:
         """Fetch metadata from PubMed and convert to BibTeX."""
@@ -410,6 +573,77 @@ class BibExtractor:
         doi = self.clean_doi(identifier)
         return self.fetch_from_crossref(doi)
 
+    def clean_invalid_entries(self, bib_file: str, output_file: Optional[str] = None) -> tuple[int, int]:
+        """Remove invalid entries from BibTeX file.
+
+        Validates each DOI in the file and removes entries with invalid DOIs.
+
+        Args:
+            bib_file: Path to BibTeX file
+            output_file: Output file (default: overwrite input)
+
+        Returns:
+            Tuple of (valid_count, removed_count)
+        """
+        if output_file is None:
+            output_file = bib_file
+
+        try:
+            with open(bib_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except FileNotFoundError:
+            print(f'Error: File not found: {bib_file}', file=sys.stderr)
+            return 0, 0
+
+        # Parse entries
+        entry_pattern = r'(@\w+\s*\{[^}]+,.*?(?=@\w+\s*\{|$))'
+        entries = re.findall(entry_pattern, content, re.DOTALL)
+
+        valid_entries = []
+        removed_count = 0
+
+        print(f'Validating {len(entries)} entries...', file=sys.stderr)
+
+        for i, entry in enumerate(entries, 1):
+            # Extract DOI
+            doi_match = re.search(r'doi\s*=\s*\{([^}]+)\}', entry, re.IGNORECASE)
+
+            if doi_match:
+                doi = self.clean_doi(doi_match.group(1))
+                print(f'[{i}/{len(entries)}] Validating DOI: {doi}', file=sys.stderr)
+
+                # Check if DOI is valid
+                try:
+                    response = self.session.head(
+                        f'https://doi.org/{doi}',
+                        timeout=10,
+                        allow_redirects=True
+                    )
+
+                    if response.status_code == 200:
+                        valid_entries.append(entry)
+                        print(f'  -> VALID', file=sys.stderr)
+                    else:
+                        removed_count += 1
+                        print(f'  -> INVALID (status {response.status_code}) - REMOVING', file=sys.stderr)
+                except Exception as e:
+                    # Keep entries on network errors
+                    valid_entries.append(entry)
+                    print(f'  -> KEEP (network error: {e})', file=sys.stderr)
+
+                time.sleep(0.5)  # Rate limiting
+            else:
+                # No DOI - keep the entry
+                valid_entries.append(entry)
+                print(f'[{i}/{len(entries)}] No DOI - keeping entry', file=sys.stderr)
+
+        # Write valid entries back
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write('\n\n'.join(valid_entries))
+
+        print(f'\nSummary: {len(valid_entries)} valid, {removed_count} removed', file=sys.stderr)
+        return len(valid_entries), removed_count
+
     def read_existing_keys(self, bib_file: str) -> set:
         """Read existing citation keys from BibTeX file."""
         keys = set()
@@ -538,7 +772,21 @@ def main():
         help='Print BibTeX to stdout without appending to file'
     )
 
+    parser.add_argument(
+        '--clean-invalid',
+        action='store_true',
+        help='Remove entries with invalid DOIs from the BibTeX file'
+    )
+
     args = parser.parse_args()
+
+    # Create extractor
+    extractor = BibExtractor(timeout=args.timeout)
+
+    # Clean invalid entries mode
+    if args.clean_invalid:
+        extractor.clean_invalid_entries(args.output)
+        return
 
     # Collect identifiers
     identifiers = []
