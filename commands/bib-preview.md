@@ -58,20 +58,24 @@ Each entry includes:
 
 ```latex
 \item[\textbf{1}] \textbf{Smith2024Quantum}
-Smith, J. and Doe, A. (2024) ``Quantum coherence in photonic systems'' \textit{Nature}
+\vspace{0.3em}
+\textbf{Quantum Coherence in Photonic Systems}
+Smith, John and Doe, Jane (2024) \textit{Nature}, 598, 123--145
+\vspace{0.3em}
 DOI: \href{https://doi.org/10.1038/xxx}{10.1038/xxx}
-
-\vspace{0.5em}
+\vspace{0.3em}
 \textit{Note:} Important for understanding quantum optics
-
-\vspace{0.5em}
+\vspace{0.3em}
 \textbf{Abstract:} \\
 \footnotesize{We demonstrate...}
-
-\vspace{0.5em}
-\textbf{Suggested Citations:} \\
-\footnotesize{Recent work by Smith et al. demonstrated...}
 ```
+
+**Format:**
+- Citation key (numbered and bold)
+- Title as bold section (with spacing)
+- Author, year, journal, pages
+- DOI/URL as clickable hyperlink
+- Note and abstract fields
 
 ## Full Preview Mode (default)
 
