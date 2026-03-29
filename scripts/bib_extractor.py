@@ -111,72 +111,53 @@ class BibExtractor:
             return None
 
     def _fix_bibtex_fields(self, bibtex: str, doi: str) -> str:
-        """Fix common BibTeX field issues, especially for Science publications."""
-        # Check if this is a Science magazine publication
-        is_science = 'science' in bibtex.lower() or 'sciencemag' in doi.lower()
+        """Fix and clean up BibTeX fields for consistent formatting."""
+        # Parse the BibTeX entry
+        entry_type_match = re.match(r'@(\w+)\s*\{([^,]+),\s*', bibtex)
+        if not entry_type_match:
+            return bibtex
 
-        if is_science:
-            # Science magazine often has incorrect field mapping
-            # Issue number in pages field needs to be moved to number field
+        entry_type = entry_type_match.group(1)
+        original_key = entry_type_match.group(2)
 
-            # Extract current fields
-            pages_match = re.search(r'pages\s*=\s*\{([^}]+)\}', bibtex)
-            number_match = re.search(r'number\s*=\s*\{([^}]+)\}', bibtex)
+        # Extract all fields
+        fields = {}
+        field_pattern = r'(\w+)\s*=\s*\{([^}]+)\}'
+        for match in re.finditer(field_pattern, bibtex):
+            field_name = match.group(1).lower()
+            field_value = match.group(2).strip()
+            fields[field_name] = field_value
 
-            if pages_match:
-                pages_value = pages_match.group(1)
+        # Build clean BibTeX entry
+        # Define field order for consistent output
+        field_order = [
+            'author', 'title', 'journal', 'booktitle', 'volume', 'number', 'pages',
+            'year', 'month', 'doi', 'url', 'issn', 'isbn', 'publisher', 'eprint', 'archive', 'pmid'
+        ]
 
-                # Check if pages value looks like an issue number (short number, no dash)
-                # Science uses format like "eadf1234" or just a number for articles
-                if pages_value and '--' not in pages_value and '-' not in pages_value:
-                    # Check if it's a short number (likely issue number, not pages)
-                    if pages_value.isdigit() and len(pages_value) <= 4:
-                        # This is likely an issue number, not pages
-                        if not number_match:
-                            # Add number field and remove pages
-                            bibtex = re.sub(r'pages\s*=\s*\{[^}]+\},?\s*\n', '', bibtex)
-                            # Insert number after volume
-                            volume_match = re.search(r'(volume\s*=\s*\{[^}]+\},?\s*\n)', bibtex)
-                            if volume_match:
-                                bibtex = bibtex.replace(
-                                    volume_match.group(0),
-                                    f"{volume_match.group(0)}  number    = {{{pages_value}}},\n"
-                                )
-                            else:
-                                # Insert before year
-                                bibtex = re.sub(
-                                    r'(year\s*=)',
-                                    f'  number    = {{{pages_value}}},\n  \\1',
-                                    bibtex
-                                )
-                        else:
-                            # Already has number, just remove the incorrect pages
-                            bibtex = re.sub(r'pages\s*=\s*\{[^}]+\},?\s*\n', '', bibtex)
+        # Build the new entry
+        new_bibtex = f"@{entry_type}{{{original_key},\n"
 
-                    # Check if it's an e-locator format (like "eadf1234" or "e1234567")
-                    elif re.match(r'^e[a-z]?\d+$', pages_value, re.IGNORECASE):
-                        # This is an e-locator, keep it but also add as article number if no number field
-                        if not number_match:
-                            # Insert number field with e-locator
-                            volume_match = re.search(r'(volume\s*=\s*\{[^}]+\},?\s*\n)', bibtex)
-                            if volume_match:
-                                bibtex = bibtex.replace(
-                                    volume_match.group(0),
-                                    f"{volume_match.group(0)}  number    = {{{pages_value}}},\n"
-                                )
+        for field in field_order:
+            if field in fields:
+                value = fields[field]
+                # Fix pages: use en-dash
+                if field == 'pages':
+                    value = re.sub(r'(?<!-)-(?!-)', '--', value)
+                    value = value.replace('----', '--')
+                # Format field with consistent spacing
+                new_bibtex += f"  {field:<10} = {{{value}}},\n"
 
-        # General cleanup: ensure pages use en-dash
-        def fix_pages(match):
-            pages = match.group(1)
-            # Convert single dash to en-dash
-            pages = re.sub(r'(?<!-)-(?!-)', '--', pages)
-            # Don't double existing en-dashes
-            pages = pages.replace('----', '--')
-            return f'pages = {{{pages}}}'
+        # Add any remaining fields not in the order list
+        for field, value in fields.items():
+            if field not in field_order:
+                new_bibtex += f"  {field:<10} = {{{value}}},\n"
 
-        bibtex = re.sub(r'pages\s*=\s*\{([^}]+)\}', fix_pages, bibtex)
+        # Remove trailing comma and close
+        new_bibtex = new_bibtex.rstrip(',\n')
+        new_bibtex += "\n}"
 
-        return bibtex
+        return new_bibtex
 
     def fetch_from_pubmed(self, pmid: str) -> Optional[str]:
         """Fetch metadata from PubMed and convert to BibTeX."""
