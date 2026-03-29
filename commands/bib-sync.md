@@ -254,12 +254,57 @@ Errors: 0
 - Comments and string macros are preserved
 - Backup file created before modification (`.bak`)
 
-## Integration
+## LLM-Based Validation
 
+Use `--llm-validate` to generate prompts for the agent (Claude) to evaluate citation-sentence matching. The system outputs structured JSON that the agent can evaluate.
+
+```
+# Generate LLM validation prompts
+/bib-sync references.bib --llm-validate
+
+# Example output (pass to agent for evaluation):
+{
+  "task": "validate_citation",
+  "citation_key": "Zhang2020Quantum",
+  "paper_metadata": {
+    "title": "Quantum sensing with NV centers",
+    "abstract": "This paper demonstrates...",
+    "note": "Used for quantum measurement techniques"
+  },
+  "context_sentences": [
+    "Quantum sensing enables precise measurements [Zhang2020Quantum]."
+  ],
+  "evaluation_criteria": {
+    "match_score": "1-100",
+    "relevance": "Is the citation appropriate?",
+    "confidence": "How confident are you?"
+  }
+}
+```
+
+## Smart Sync Workflow
+
+Use `--smart-sync` for intelligent citation management with LLM validation:
+```
+# Smart sync with documents
+/bib-sync references.bib --smart-sync --documents paper.tex
+
+# Workflow:
+# 1. Parse documents to find citation contexts
+# 2. For each citation:
+#    a. Check if already exists in library
+#    b. If exists: Update note with new usage context
+#    c. If not exists: Add new entry from DOI
+# 3. Validate citations with LLM (if --llm-validate)
+# 4. Handle inappropriate citations (revise/replace/remove)
+```
+
+## Integration
 This command works with:
 - `/bib-extractor` - Used internally for metadata fetching
 - `/bib-preview` - Preview synced library
 - `/bib-search` - For title-based searching
+- `/bib-track` - For citation context tracking
 
 ---
 
@@ -268,8 +313,8 @@ This command works with:
 # Preview what would change
 /bib-sync references.bib --dry-run
 
-# Perform sync with removal of unmatched entries
-/bib-sync references.bib --remove-invalid --update-citations
+# Perform smart sync with LLM validation
+/bib-sync references.bib --smart-sync --documents paper.tex --llm-validate
 
 # Preview the result
 /bib-preview references.bib
