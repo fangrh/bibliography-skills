@@ -556,11 +556,12 @@ class CitationNeedAnalyzer:
         self.extractor_module = module
         return module
 
-    def build_inline_citation(self, doi: str, style: str = 'journal') -> str:
+    def build_inline_citation(self, doi: str, style: str = 'journal',
+                              bib_file: Optional[str] = None) -> str:
         """Generate an inline citation string using the local bib_extractor."""
         module = self._load_bib_extractor_module()
         extractor = module.BibExtractor()
-        bibtex = extractor.extract_bibtex(doi)
+        bibtex = extractor.extract_bibtex(doi, bib_file=bib_file)
         if not bibtex:
             return ''
         return extractor.generate_inline_citation(bibtex, style=style)

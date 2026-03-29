@@ -1,4 +1,5 @@
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -263,6 +264,71 @@ class BibSmartSearchTests(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertIn("mechanical phonon", results[0]["title"].lower())
+
+    def test_local_bib_extractor_reuses_existing_entry_by_doi(self):
+        spec = importlib.util.spec_from_file_location("bib_extractor", EXTRACTOR_PATH)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        extractor = module.BibExtractor()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bib_path = Path(tmpdir) / "references.bib"
+            existing = """@article{ExistingKey,
+  author = {A. Author},
+  title = {Existing article},
+  journal = {Phys. Rev. B},
+  volume = {97},
+  pages = {205443},
+  year = {2018},
+  doi = {10.1103/physrevb.97.205443},
+  url = {http://dx.doi.org/10.1103/PhysRevB.97.205443}
+}"""
+            bib_path.write_text(existing, encoding="utf-8")
+
+            def fail_fetch(*args, **kwargs):
+                raise AssertionError("network fetch should not be called for existing DOI")
+
+            extractor.fetch_from_crossref = fail_fetch
+
+            reused = extractor.extract_bibtex(
+                "10.1103/PhysRevB.97.205443",
+                bib_file=str(bib_path),
+            )
+
+            self.assertEqual(reused.strip(), existing.strip())
+
+    def test_local_bib_extractor_reuses_existing_entry_by_url(self):
+        spec = importlib.util.spec_from_file_location("bib_extractor", EXTRACTOR_PATH)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        extractor = module.BibExtractor()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bib_path = Path(tmpdir) / "references.bib"
+            existing = """@article{ExistingKey,
+  author = {A. Author},
+  title = {Existing article},
+  journal = {Phys. Rev. B},
+  volume = {97},
+  pages = {205443},
+  year = {2018},
+  doi = {10.1103/physrevb.97.205443}
+}"""
+            bib_path.write_text(existing, encoding="utf-8")
+
+            def fail_fetch(*args, **kwargs):
+                raise AssertionError("network fetch should not be called for existing DOI URL")
+
+            extractor.fetch_from_crossref = fail_fetch
+
+            reused = extractor.extract_bibtex(
+                "https://doi.org/10.1103/PhysRevB.97.205443",
+                bib_file=str(bib_path),
+            )
+
+            self.assertEqual(reused.strip(), existing.strip())
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import re
 import argparse
 import json
 from typing import Optional, Dict, List, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from pathlib import Path
 import time
 
@@ -363,6 +363,84 @@ class BibExtractor:
         doi = doi.rstrip('/')
 
         return doi
+
+    def normalize_url(self, url: str) -> str:
+        """Normalize URL for stable comparison against existing BibTeX entries."""
+        url = url.strip()
+        if not url:
+            return ''
+
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower() or 'https'
+        netloc = parsed.netloc.lower()
+        path = parsed.path.rstrip('/')
+
+        filtered_query = []
+        for key, value in parse_qsl(parsed.query, keep_blank_values=False):
+            if key.lower().startswith(('utm_', 'fbclid', 'gclid')):
+                continue
+            filtered_query.append((key, value))
+
+        query = urlencode(filtered_query)
+        return urlunparse((scheme, netloc, path, '', query, ''))
+
+    def _split_bib_entries(self, content: str) -> List[str]:
+        """Split BibTeX file content into individual entries."""
+        return re.findall(r'(@\w+\s*\{[^}]+,.*?(?=@\w+\s*\{|$))', content, re.DOTALL)
+
+    def _find_entry_field(self, entry: str, field_name: str) -> str:
+        """Extract a field value from a BibTeX entry."""
+        match = re.search(rf'{field_name}\s*=\s*\{{([^}}]+)\}}', entry, re.IGNORECASE)
+        return match.group(1).strip() if match else ''
+
+    def find_existing_entry(self, identifier: str, bib_file: Optional[str]) -> Optional[str]:
+        """Return an existing BibTeX entry if DOI/URL/arXiv already exists in bib_file."""
+        if not bib_file or not Path(bib_file).exists():
+            return None
+
+        raw_identifier = identifier.strip()
+        target_doi = ''
+        target_url = ''
+        target_eprint = ''
+
+        if raw_identifier.startswith(('http://', 'https://')):
+            extracted_doi = self.extract_doi_from_url(raw_identifier)
+            if extracted_doi:
+                target_doi = self.clean_doi(extracted_doi).lower()
+            else:
+                target_url = self.normalize_url(raw_identifier)
+
+            extracted_arxiv = self.extract_arxiv_id_from_url(raw_identifier)
+            if extracted_arxiv:
+                target_eprint = extracted_arxiv
+        elif re.match(r'^\d{4}\.\d{4,5}$', raw_identifier):
+            target_eprint = raw_identifier
+        elif raw_identifier.isdigit():
+            pass
+        else:
+            target_doi = self.clean_doi(raw_identifier).lower()
+
+        try:
+            content = Path(bib_file).read_text(encoding='utf-8')
+        except Exception as e:
+            print(f'  Warning: Could not read existing bibliography {bib_file}: {e}', file=sys.stderr)
+            return None
+
+        for entry in self._split_bib_entries(content):
+            entry_doi = self.clean_doi(self._find_entry_field(entry, 'doi')).lower() if self._find_entry_field(entry, 'doi') else ''
+            entry_url = self.normalize_url(self._find_entry_field(entry, 'url')) if self._find_entry_field(entry, 'url') else ''
+            entry_eprint = self._find_entry_field(entry, 'eprint')
+
+            if target_doi and entry_doi == target_doi:
+                return entry.strip()
+
+            if target_url and entry_url == target_url:
+                return entry.strip()
+
+            if target_eprint and entry_eprint == target_eprint:
+                return entry.strip()
+
+        return None
 
     def fetch_citation_count(self, doi: str) -> Optional[int]:
         """Fetch citation count for a DOI from multiple sources.
@@ -1481,14 +1559,21 @@ class BibExtractor:
             i += 1
         return f'{base_key}{i}'
 
-    def extract_bibtex(self, identifier: str, fetch_abstract: bool = False) -> Optional[str]:
+    def extract_bibtex(self, identifier: str, fetch_abstract: bool = False,
+                       bib_file: Optional[str] = None) -> Optional[str]:
         """Extract BibTeX entry from identifier (DOI, URL, PMID, arXiv ID).
 
         Args:
             identifier: DOI, URL, PMID, or arXiv ID
             fetch_abstract: If True, also fetch abstract from available sources
+            bib_file: Existing bibliography file to reuse matching entries from
         """
         identifier = identifier.strip()
+
+        existing_entry = self.find_existing_entry(identifier, bib_file)
+        if existing_entry:
+            print(f'  Reusing existing entry from {bib_file}', file=sys.stderr)
+            return existing_entry
 
         # Check if it's a URL
         if identifier.startswith(('http://', 'https://')):
@@ -1697,7 +1782,7 @@ class BibExtractor:
         for i, identifier in enumerate(identifiers, 1):
             print(f'[{i}/{len(identifiers)}] Processing: {identifier}', file=sys.stderr)
 
-            bibtex = self.extract_bibtex(identifier, fetch_abstract=fetch_abstract)
+            bibtex = self.extract_bibtex(identifier, fetch_abstract=fetch_abstract, bib_file=bib_file)
 
             if bibtex:
                 key = self.append_to_file(bibtex, bib_file, existing_keys)
@@ -1738,7 +1823,7 @@ class BibExtractor:
             time.sleep(delay * (index % workers))
 
             try:
-                bibtex = self.extract_bibtex(identifier, fetch_abstract=fetch_abstract)
+                bibtex = self.extract_bibtex(identifier, fetch_abstract=fetch_abstract, bib_file=bib_file)
                 return (index, identifier, bibtex)
             except Exception as e:
                 print(f'  Error processing {identifier}: {e}', file=sys.stderr)
@@ -1932,7 +2017,11 @@ def main():
         print(f'# Extracting {len(identifiers)} bibliography entry(ies)', file=sys.stderr)
         for i, identifier in enumerate(identifiers, 1):
             print(f'[{i}/{len(identifiers)}] {identifier}', file=sys.stderr)
-            bibtex = extractor.extract_bibtex(identifier, fetch_abstract=args.abstract)
+            bibtex = extractor.extract_bibtex(
+                identifier,
+                fetch_abstract=args.abstract,
+                bib_file=args.output,
+            )
             if bibtex:
                 print()
                 if args.inline:

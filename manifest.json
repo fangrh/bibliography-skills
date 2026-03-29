@@ -1,6 +1,6 @@
 {
   "name": "bibliography-skills",
-  "version": "2.0.0",
+  "version": "1.0.1",
   "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
   "author": "fangrh",
   "license": "MIT",
