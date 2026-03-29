@@ -24,6 +24,7 @@
     ]
   },
   "scripts": {
-    "searcher": "python3 scripts/bib_smart_search.py"
+    "searcher": "python3 scripts/bib_smart_search.py",
+    "sync-version": "python3 scripts/sync_version.py"
   }
 }

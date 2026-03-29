@@ -93,6 +93,16 @@ You can also run the helper script directly:
 python3 ~/.codex/bibliography-skills/scripts/bib_extractor.py --print-only 10.1038/s41586-021-03926-0
 ```
 
+Release metadata sync:
+
+```bash
+npm run sync-version
+# or
+python3 scripts/sync_version.py 1.0.2
+```
+
+This keeps `package.json`, `manifest.json`, both marketplace JSON files, and the sibling Claude marketplace repo in sync.
+
 ### Updating
 
 ```bash
