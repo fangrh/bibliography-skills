@@ -1,6 +1,6 @@
 {
   "name": "bibliography-skills",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Zotero-like bibliography extraction and management for Claude Code",
   "author": "Your Name",
   "license": "MIT",
@@ -20,10 +20,12 @@
     "abstract",
     "note-generation",
     "citation-tracking",
-    "lint"
+    "lint",
+    "smart-search"
   ],
   "claude": {
     "commands": [
+      "bib-analyze",
       "bib-extractor",
       "bib-lint",
       "bib-note",
