@@ -10,7 +10,7 @@ A Zotero-like bibliography extraction and management suite for Claude Code. Extr
 ### Marketplace (Recommended)
 
 ```bash
-/plugin marketplace add fangrh/bibliography-skills
+/plugin marketplace add fangrh/bibliography-skills-marketplace
 /plugin install bibliography-skills@fangrh-bibliography-skills
 ```
 

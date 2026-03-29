@@ -4,7 +4,7 @@
   "description": "Zotero-like bibliography extraction and management for Claude Code",
   "author": "fangrh",
   "license": "MIT",
-  "repository": "https://github.com/fangrh/bibliography-skills",
+  "repository": "fangrh/bibliography-skills-marketplace",
   "keywords": [
     "bibliography",
     "bibtex",
