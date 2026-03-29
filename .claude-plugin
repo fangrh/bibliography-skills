@@ -1,0 +1,5 @@
+name: bibliography-skills
+version: 1.0.0
+type: module
+description: Zotero-like bibliography extraction and management for Claude Code
+main: commands/
