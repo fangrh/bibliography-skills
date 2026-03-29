@@ -1475,7 +1475,7 @@ class BibExtractor:
             with open(bib_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 # Extract citation keys using regex
-                matches = re.find(r'@(\w+)\{([^,]+),', content)
+                matches = re.findall(r'@(\w+)\{([^,]+),', content)
                 for match in matches:
                     keys.add(match[1])
         except FileNotFoundError:
@@ -1493,18 +1493,22 @@ class BibExtractor:
         # Replace placeholder key with generated key
         bibtex = re.sub(r'@(\w+)\{[^,]+,', f'@\\1{{{key},', bibtex, count=1)
 
+        # Check existing file content for proper spacing
+        file_exists = Path(bib_file).exists()
+        needs_separator = False
+        if file_exists:
+            try:
+                with open(bib_file, 'r', encoding='utf-8') as f:
+                    existing_content = f.read()
+                    if existing_content and not existing_content.endswith('\n\n'):
+                        needs_separator = True
+            except Exception:
+                needs_separator = True
+
         # Write to file
         with open(bib_file, 'a', encoding='utf-8') as f:
-            # Add blank lines for separation
-            content = f.read()
-            if content and not content.endswith('\n\n'):
+            if needs_separator:
                 f.write('\n\n')
-            elif not content:
-                # New file, no blank lines needed
-                pass
-            else:
-                f.write('\n\n')
-
             f.write(bibtex)
 
         return key
