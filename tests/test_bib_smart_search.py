@@ -181,6 +181,89 @@ class BibSmartSearchTests(unittest.TestCase):
         self.assertIn("Nat. Commun.", inline)
         self.assertIn("4979", inline)
 
+    def test_rerank_prefers_anchor_matched_phonon_qubit_paper(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        sentence = (
+            "Superconducting qubit sensors detect mechanical phonons via "
+            "piezoelectric coupling to acoustic modes."
+        )
+
+        candidates = [
+            {
+                "title": "Cavity optomechanics",
+                "abstract": (
+                    "This review covers optical cavities and mechanical resonators "
+                    "with radiation-pressure coupling."
+                ),
+                "journal": "Reviews of Modern Physics",
+            },
+            {
+                "title": (
+                    "Resolving the energy of a single mechanical phonon with a "
+                    "superconducting qubit"
+                ),
+                "abstract": (
+                    "A superconducting qubit detects acoustic phonons through "
+                    "piezoelectric coupling to a mechanical resonator mode."
+                ),
+                "journal": "Nature",
+            },
+            {
+                "title": "Magnetometry with nitrogen-vacancy defects in diamond",
+                "abstract": "NV centers enable nanoscale magnetic sensing.",
+                "journal": "Reports on Progress in Physics",
+            },
+        ]
+
+        reranked = analyzer.rerank_citations(sentence, candidates)
+
+        self.assertEqual(reranked[0]["title"], candidates[1]["title"])
+        self.assertGreater(reranked[0]["score"], 0.0)
+        self.assertEqual(reranked[-1]["score"], 0.0)
+
+    def test_suggest_citations_filters_zero_score_irrelevant_results(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        sentence = (
+            "Superconducting qubit sensors detect mechanical phonons via "
+            "piezoelectric coupling to acoustic modes."
+        )
+
+        analyzer.search_for_citations = lambda *args, **kwargs: [
+            {
+                "doi": "",
+                "title": "Cavity optomechanics",
+                "abstract": "Optical cavities couple to mechanical motion.",
+                "journal": "Reviews of Modern Physics",
+            },
+            {
+                "doi": "",
+                "title": (
+                    "Resolving the energy of a single mechanical phonon with a "
+                    "superconducting qubit"
+                ),
+                "abstract": (
+                    "A superconducting qubit detects acoustic phonons through "
+                    "piezoelectric coupling."
+                ),
+                "journal": "Nature",
+            },
+            {
+                "doi": "",
+                "title": "Magnetometry with nitrogen-vacancy defects in diamond",
+                "abstract": "NV centers enable nanoscale magnetic sensing.",
+                "journal": "Reports on Progress in Physics",
+            },
+        ]
+
+        results = analyzer.suggest_citations_for_sentence(sentence, max_results=3)
+
+        self.assertEqual(len(results), 1)
+        self.assertIn("mechanical phonon", results[0]["title"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

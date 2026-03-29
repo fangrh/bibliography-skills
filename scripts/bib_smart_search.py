@@ -42,6 +42,20 @@ class SentenceAnalysis:
 class CitationNeedAnalyzer:
     """Analyze text to identify statements needing citations."""
 
+    DOMAIN_ANCHOR_PATTERNS = [
+        ('superconducting qubit', r'\bsuperconduct(?:ing)?\s+qubit[s]?\b'),
+        ('mechanical phonon', r'\bmechanical\s+phonon[s]?\b'),
+        ('piezoelectric coupling', r'\bpiezoelectric\s+coupling\b'),
+        ('acoustic mode', r'\bacoustic\s+mode[s]?\b'),
+        ('phonon', r'\bphonon[s]?\b'),
+        ('piezoelectric', r'\bpiezoelectric\b'),
+        ('qubit', r'\bqubit[s]?\b'),
+        ('acoustic', r'\bacoustic\b'),
+        ('mechanical resonator', r'\bmechanical\s+resonator[s]?\b'),
+        ('spin defect', r'\bspin\s+defect[s]?\b'),
+        ('nv center', r'\bnv\s+cent(?:er|re)[s]?\b'),
+    ]
+
     # High-confidence indicators that a statement needs citation
     CITATION_NEEDED_PATTERNS = [
         # Numerical claims
@@ -326,6 +340,44 @@ class CitationNeedAnalyzer:
         text = text.replace('{', ' ').replace('}', ' ')
         return re.sub(r'\s+', ' ', text).strip()
 
+    def _extract_anchor_terms(self, text: str) -> List[str]:
+        """Extract domain anchor phrases that should strongly constrain matching."""
+        normalized = self._strip_latex(text).lower()
+        anchors = []
+        seen = set()
+
+        for label, pattern in self.DOMAIN_ANCHOR_PATTERNS:
+            if re.search(pattern, normalized) and label not in seen:
+                anchors.append(label)
+                seen.add(label)
+
+        return anchors
+
+    def _anchor_match_score(self, sentence: str, candidate: Dict) -> Tuple[float, int]:
+        """Score candidate match against anchor terms extracted from the sentence."""
+        anchors = self._extract_anchor_terms(sentence)
+        if not anchors:
+            return 0.0, 0
+
+        candidate_text = ' '.join([
+            candidate.get('title', ''),
+            candidate.get('abstract', ''),
+            candidate.get('journal', ''),
+        ]).lower()
+
+        matched = 0
+        score = 0.0
+        for anchor in anchors:
+            if anchor in candidate_text:
+                matched += 1
+                # Title hits are stronger evidence than abstract hits.
+                if anchor in (candidate.get('title', '') or '').lower():
+                    score += 1.4
+                else:
+                    score += 0.8
+
+        return score, matched
+
     def _term_overlap_score(self, sentence: str, candidate: Dict) -> float:
         """Score a candidate by token overlap with the sentence."""
         source_terms = set(self._extract_search_terms(sentence))
@@ -347,8 +399,16 @@ class CitationNeedAnalyzer:
         for candidate in candidates:
             score = self._term_overlap_score(sentence, candidate)
             score += self.score_quantitative_match(sentence, claim, candidate)
+            anchor_score, anchor_matches = self._anchor_match_score(sentence, candidate)
+            score += anchor_score
+
+            anchors = self._extract_anchor_terms(sentence)
+            if anchors and anchor_matches == 0:
+                score = 0.0
+
             enriched = dict(candidate)
             enriched['score'] = round(score, 4)
+            enriched['anchor_matches'] = anchor_matches
             reranked.append(enriched)
 
         reranked.sort(key=lambda item: item.get('score', 0.0), reverse=True)
@@ -477,7 +537,8 @@ class CitationNeedAnalyzer:
             timeout=timeout,
             allow_arxiv=allow_arxiv,
         )
-        reranked = self.rerank_citations(sentence, candidates)[:max_results]
+        reranked = self.rerank_citations(sentence, candidates)
+        reranked = [candidate for candidate in reranked if candidate.get('score', 0.0) > 0.0][:max_results]
         for candidate in reranked:
             doi = candidate.get('doi', '')
             candidate['inline_citation'] = self.build_inline_citation(doi) if doi else ''
