@@ -93,6 +93,8 @@ class BibExtractor:
                 # Fix @data{ to @misc{
                 if bibtex.startswith('@data{'):
                     bibtex = bibtex.replace('@data{', '@misc{', 1)
+                # Post-process to fix common issues
+                bibtex = self._fix_bibtex_fields(bibtex, doi)
                 return bibtex
             elif response.status_code == 404:
                 print(f'  Warning: DOI not found in CrossRef: {doi}', file=sys.stderr)
@@ -107,6 +109,74 @@ class BibExtractor:
         except requests.exceptions.RequestException as e:
             print(f'  Warning: Request failed: {e}', file=sys.stderr)
             return None
+
+    def _fix_bibtex_fields(self, bibtex: str, doi: str) -> str:
+        """Fix common BibTeX field issues, especially for Science publications."""
+        # Check if this is a Science magazine publication
+        is_science = 'science' in bibtex.lower() or 'sciencemag' in doi.lower()
+
+        if is_science:
+            # Science magazine often has incorrect field mapping
+            # Issue number in pages field needs to be moved to number field
+
+            # Extract current fields
+            pages_match = re.search(r'pages\s*=\s*\{([^}]+)\}', bibtex)
+            number_match = re.search(r'number\s*=\s*\{([^}]+)\}', bibtex)
+
+            if pages_match:
+                pages_value = pages_match.group(1)
+
+                # Check if pages value looks like an issue number (short number, no dash)
+                # Science uses format like "eadf1234" or just a number for articles
+                if pages_value and '--' not in pages_value and '-' not in pages_value:
+                    # Check if it's a short number (likely issue number, not pages)
+                    if pages_value.isdigit() and len(pages_value) <= 4:
+                        # This is likely an issue number, not pages
+                        if not number_match:
+                            # Add number field and remove pages
+                            bibtex = re.sub(r'pages\s*=\s*\{[^}]+\},?\s*\n', '', bibtex)
+                            # Insert number after volume
+                            volume_match = re.search(r'(volume\s*=\s*\{[^}]+\},?\s*\n)', bibtex)
+                            if volume_match:
+                                bibtex = bibtex.replace(
+                                    volume_match.group(0),
+                                    f"{volume_match.group(0)}  number    = {{{pages_value}}},\n"
+                                )
+                            else:
+                                # Insert before year
+                                bibtex = re.sub(
+                                    r'(year\s*=)',
+                                    f'  number    = {{{pages_value}}},\n  \\1',
+                                    bibtex
+                                )
+                        else:
+                            # Already has number, just remove the incorrect pages
+                            bibtex = re.sub(r'pages\s*=\s*\{[^}]+\},?\s*\n', '', bibtex)
+
+                    # Check if it's an e-locator format (like "eadf1234" or "e1234567")
+                    elif re.match(r'^e[a-z]?\d+$', pages_value, re.IGNORECASE):
+                        # This is an e-locator, keep it but also add as article number if no number field
+                        if not number_match:
+                            # Insert number field with e-locator
+                            volume_match = re.search(r'(volume\s*=\s*\{[^}]+\},?\s*\n)', bibtex)
+                            if volume_match:
+                                bibtex = bibtex.replace(
+                                    volume_match.group(0),
+                                    f"{volume_match.group(0)}  number    = {{{pages_value}}},\n"
+                                )
+
+        # General cleanup: ensure pages use en-dash
+        def fix_pages(match):
+            pages = match.group(1)
+            # Convert single dash to en-dash
+            pages = re.sub(r'(?<!-)-(?!-)', '--', pages)
+            # Don't double existing en-dashes
+            pages = pages.replace('----', '--')
+            return f'pages = {{{pages}}}'
+
+        bibtex = re.sub(r'pages\s*=\s*\{([^}]+)\}', fix_pages, bibtex)
+
+        return bibtex
 
     def fetch_from_pubmed(self, pmid: str) -> Optional[str]:
         """Fetch metadata from PubMed and convert to BibTeX."""
