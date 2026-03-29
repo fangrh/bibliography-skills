@@ -119,22 +119,20 @@ def format_latex_entry(entry: Dict, index: int, suggestions: Optional[str] = Non
     fields = entry['fields']
     key = entry['key']
     entry_type = entry['type']
+    title = fields.get('title', '')
 
-    # Build citation line
+    # Build citation line with title as section
     citation = f"\\item[\\textbf{{{index}}}] \\textbf{{{key}}}"
 
-    # Format basic info (author, year, title)
+    # Format basic info (author, year)
     author = fields.get('author', 'Unknown')
     year = fields.get('year', '')
-    title = fields.get('title', '')
 
     info_parts = []
     if author and author != 'Unknown':
         info_parts.append(f"{author}")
     if year:
         info_parts.append(f"({year})")
-    if title:
-        info_parts.append(f"``{title}''")
 
     info_line = ' '.join(info_parts)
 
@@ -148,37 +146,47 @@ def format_latex_entry(entry: Dict, index: int, suggestions: Optional[str] = Non
     if 'volume' in fields:
         info_line += f", {fields['volume']}"
     if 'pages' in fields:
-        pages = fields['pages'].replace('-', '--')  # Use en-dash
+        pages = fields['pages']
+        # Ensure en-dash, but don't double existing en-dashes
+        if '--' not in pages:
+            pages = pages.replace('-', '--')
         info_line += f", {pages}"
 
     entry_lines = [citation, info_line]
 
+    # Add title as a section header
+    if title:
+        entry_lines.insert(1, f"\\vspace{{0.3em}}")
+        entry_lines.insert(2, f"\\textbf{{{title}}}")
+
     # Add DOI with hyperlink
     if 'doi' in fields:
         doi = fields['doi']
+        entry_lines.append(f"\\vspace{{0.3em}}")
         entry_lines.append(f"DOI: \\href{{https://doi.org/{doi}}}{{{doi}}}")
 
     # Add URL with hyperlink
     if 'url' in fields and 'doi' not in fields:
         url = fields['url']
+        entry_lines.append(f"\\vspace{{0.3em}}")
         entry_lines.append(f"URL: \\href{{{url}}}{{{url}}}")
 
     # Add note
     if 'note' in fields:
         note = fields['note']
-        entry_lines.append(f"\\vspace{{0.5em}}")
+        entry_lines.append(f"\\vspace{{0.3em}}")
         entry_lines.append(f"\\textit{{Note:}} {note}")
 
     # Add abstract
     if 'abstract' in fields:
         abstract = fields['abstract']
-        entry_lines.append(f"\\vspace{{0.5em}}")
+        entry_lines.append(f"\\vspace{{0.3em}}")
         entry_lines.append(f"\\textbf{{Abstract:}} \\\\")
         entry_lines.append(f"\\footnotesize{{{abstract}}}")
 
     # Add AI suggestions
     if suggestions:
-        entry_lines.append(f"\\vspace{{0.5em}}")
+        entry_lines.append(f"\\vspace{{0.3em}}")
         entry_lines.append(f"\\textbf{{Suggested Citations:}} \\\\")
         entry_lines.append(f"\\footnotesize{{{suggestions}}}")
 
