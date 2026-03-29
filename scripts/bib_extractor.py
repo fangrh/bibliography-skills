@@ -150,6 +150,63 @@ class BibExtractor:
 
         return doi
 
+    def fetch_citation_count(self, doi: str) -> Optional[int]:
+        """Fetch citation count for a DOI from multiple sources.
+
+        Tries in order:
+        1. CrossRef API
+        2. OpenAlex API
+        3. Semantic Scholar API
+
+        Returns:
+            Citation count or None if unavailable
+        """
+        # Try CrossRef first
+        try:
+            url = f'https://api.crossref.org/works/{doi}'
+            headers = {'User-Agent': 'BibExtractor/1.0'}
+            response = self.session.get(url, headers=headers, timeout=self.timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                count = data.get('message', {}).get('is-referenced-by-count')
+                if count is not None:
+                    print(f'  Citations (CrossRef): {count}', file=sys.stderr)
+                    return count
+        except Exception as e:
+            pass
+
+        # Try OpenAlex
+        try:
+            url = f'https://api.openalex.org/works/doi:{doi}'
+            response = self.session.get(url, timeout=self.timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                count = data.get('cited_by_count')
+                if count is not None:
+                    print(f'  Citations (OpenAlex): {count}', file=sys.stderr)
+                    return count
+        except Exception as e:
+            pass
+
+        # Try Semantic Scholar
+        try:
+            url = f'https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}?fields=citationCount'
+            response = self.session.get(url, timeout=self.timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                count = data.get('citationCount')
+                if count is not None:
+                    print(f'  Citations (Semantic Scholar): {count}', file=sys.stderr)
+                    return count
+        except Exception as e:
+            pass
+
+        print(f'  Citations: Not available', file=sys.stderr)
+        return None
+
     def fetch_from_crossref(self, doi: str) -> Optional[str]:
         """Fetch BibTeX from CrossRef API.
 
@@ -170,8 +227,12 @@ class BibExtractor:
                 # Fix @data{ to @misc{
                 if bibtex.startswith('@data{'):
                     bibtex = bibtex.replace('@data{', '@misc{', 1)
-                # Post-process to fix common issues
-                bibtex = self._fix_bibtex_fields(bibtex, doi)
+
+                # Fetch citation count
+                citation_count = self.fetch_citation_count(doi)
+
+                # Post-process to fix common issues and add citations
+                bibtex = self._fix_bibtex_fields(bibtex, doi, citation_count)
                 return bibtex
             elif response.status_code == 404:
                 print(f'  ERROR_INVALID: DOI not found in CrossRef: {doi}', file=sys.stderr)
@@ -188,13 +249,14 @@ class BibExtractor:
             print(f'  ERROR: Request failed: {e}', file=sys.stderr)
             return None
 
-    def _fix_bibtex_fields(self, bibtex: str, doi: str) -> str:
+    def _fix_bibtex_fields(self, bibtex: str, doi: str, citation_count: Optional[int] = None) -> str:
         """Fix and clean up BibTeX fields for consistent formatting.
 
         This method:
         1. Detects the journal type
         2. Applies journal-specific fixes if needed
-        3. Formats output consistently
+        3. Adds citation count if available
+        4. Formats output consistently
         """
         # Detect journal from DOI and BibTeX content
         self.detected_journal = self.detect_journal(doi, bibtex)
@@ -218,10 +280,14 @@ class BibExtractor:
         # Apply journal-specific fixes
         fields = self._apply_journal_specific_fixes(fields, self.detected_journal)
 
+        # Add citation count if available
+        if citation_count is not None:
+            fields['citations'] = str(citation_count)
+
         # Build clean BibTeX entry with consistent field order
         field_order = [
             'author', 'title', 'journal', 'booktitle', 'volume', 'number', 'pages',
-            'year', 'month', 'doi', 'url', 'issn', 'isbn', 'publisher', 'eprint', 'archive', 'pmid'
+            'year', 'month', 'citations', 'doi', 'url', 'issn', 'isbn', 'publisher', 'eprint', 'archive', 'pmid'
         ]
 
         # Build the new entry
