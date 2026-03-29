@@ -165,6 +165,12 @@ def format_latex_entry(entry: Dict, index: int, suggestions: Optional[str] = Non
         entry_lines.append(f"\\vspace{{0.3em}}")
         entry_lines.append(f"DOI: \\href{{https://doi.org/{doi}}}{{{doi}}}")
 
+    # Add citation count
+    if 'citations' in fields:
+        citations = fields['citations']
+        entry_lines.append(f"\\vspace{{0.3em}}")
+        entry_lines.append(f"\\textbf{{Citations:}} {citations}")
+
     # Add URL with hyperlink
     if 'url' in fields and 'doi' not in fields:
         url = fields['url']
