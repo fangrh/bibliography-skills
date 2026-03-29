@@ -1677,7 +1677,314 @@ class BibSync:
         elif action == 'manual_review':
             print(f'  ⚠ Action: Manual review required (no replacements found)', file=sys.stderr)
 
-    def _print_single_citation_result(self, val: Dict):
+        # ==================== LLM-Based Validation ====================
+
+    def generate_llm_validation_prompt(self, entry: Dict, context_sentences: List[str]) -> str:
+        """Generate a structured prompt for LLM-based citation validation.
+
+        The user should pass this output to the agent (Claude) for evaluation.
+
+        Args:
+            entry: BibTeX entry dict with 'fields' containing paper metadata
+            context_sentences: List of sentences where this citation appears
+
+        Returns:
+            JSON string prompt for LLM evaluation
+        """
+        fields = entry.get('fields', {})
+        key = entry.get('key', 'unknown')
+
+        prompt_data = {
+            "task": "validate_citation",
+            "citation_key": key,
+            "paper_metadata": {
+                "title": fields.get('title', ''),
+                "abstract": fields.get('abstract', ''),
+                "note": fields.get('note', ''),
+                "authors": fields.get('author', ''),
+                "year": fields.get('year', ''),
+                "doi": fields.get('doi', '')
+            },
+            "context_sentences": context_sentences,
+            "evaluation_criteria": {
+                "match_score": "0-100: How well does the paper support the claims in the sentences?",
+                "relevance": "Is the citation appropriate for this context?",
+                "confidence": "How confident are you in this assessment?"
+            },
+            "output_format": {
+                "match_score": "integer 0-100",
+                "is_appropriate": "boolean",
+                "reasoning": "brief explanation",
+                "paper_contribution": "what this paper contributes (if matched)",
+                "suggested_action": "keep | replace | revise_sentence"
+            }
+        }
+
+        return json.dumps(prompt_data, indent=2)
+
+    def parse_llm_validation_response(self, response_text: str) -> Dict:
+        """Parse LLM validation response.
+
+        Args:
+            response_text: Raw text response from LLM
+
+        Returns:
+            Parsed validation result dict
+        """
+        try:
+            # Try to extract JSON from response
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                return json.loads(json_match.group(0))
+
+            # Parse structured text if no JSON found
+            result = {}
+            patterns = {
+                'match_score': r'match_score["\']?\s*:\s*(\d+)',
+                'is_appropriate': r'is_appropriate["\']?\s*:\s*(true|false)',
+                'suggested_action': r'suggested_action["\']?\s*:\s*["\']?(\w+)["\']?'
+            }
+
+            for key, pattern in patterns.items():
+                match = re.search(pattern, response_text, re.IGNORECASE)
+                if match:
+                    value = match.group(1)
+                    if key == 'match_score':
+                        result[key] = int(value)
+                    elif key == 'is_appropriate':
+                        result[key] = value.lower() == 'true'
+                    else:
+                        result[key] = value
+
+            return result
+        except Exception as e:
+            return {'error': str(e), 'raw_response': response_text}
+
+    def check_citation_exists_in_library(self, bib_file: str, doi: str) -> Optional[Dict]:
+        """Check if a citation with given DOI already exists in the library.
+
+        Args:
+            bib_file: Path to BibTeX file
+            doi: DOI to search for
+
+        Returns:
+            Existing entry dict if found, None otherwise
+        """
+        entries, _ = self.parse_bib_file(bib_file)
+
+        for entry in entries:
+            fields = entry.get('fields', {})
+            existing_doi = fields.get('doi', '').lower().strip()
+            if existing_doi == doi.lower().strip():
+                return entry
+
+        return None
+
+    def update_entry_note(self, entry: Dict, new_context: str, source_file: str) -> str:
+        """Update entry's note field with new usage context.
+
+        Args:
+            entry: BibTeX entry dict
+            new_context: The sentence/context where this citation is used
+            source_file: The file where this usage was found
+
+        Returns:
+            Updated note string
+        """
+        fields = entry.get('fields', {})
+        existing_note = fields.get('note', '')
+
+        # Parse existing usage tracking
+        usage_marker = f"[Used in {source_file}]"
+
+        if existing_note:
+            # Check if this file is already tracked
+            if usage_marker not in existing_note:
+                # Append new usage
+                updated_note = f"{existing_note}; {usage_marker}: \"{new_context[:100]}...\""
+            else:
+                # Already tracked, update the context
+                updated_note = existing_note
+        else:
+            # Create new note with usage tracking
+            updated_note = f"{usage_marker}: \"{new_context[:100]}...\""
+
+        return updated_note
+
+    def smart_sync(self, bib_file: str, documents: List[str] = None,
+                   use_llm: bool = False, verbose: bool = False) -> Dict:
+        """Intelligent sync with LLM-based citation validation.
+
+        Workflow:
+        1. Parse documents to find citation contexts
+        2. For each citation:
+           a. If use_llm: Generate prompt for LLM evaluation
+           b. Evaluate note-sentence matching
+           c. Check if citation exists in library
+           d. If exists: Update note with new usage context
+           e. If not exists: Add new entry to library
+        3. For inappropriate citations:
+           a. Suggest revision or replacement
+
+        Args:
+            bib_file: Path to BibTeX file
+            documents: List of document files to scan for citations
+            use_llm: Use LLM-based validation (generates prompts)
+            verbose: Show detailed progress
+
+        Returns:
+            Statistics dict with results
+        """
+        stats = {
+            'total_entries': 0,
+            'citations_validated': 0,
+            'citations_appropriate': 0,
+            'citations_inappropriate': 0,
+            'citations_reused': 0,
+            'citations_added': 0,
+            'notes_updated': 0,
+            'llm_prompts_generated': 0,
+            'validation_results': [],
+            'actions_taken': []
+        }
+
+        # Parse existing library
+        entries, header = self.parse_bib_file(bib_file)
+        stats['total_entries'] = len(entries)
+
+        # Build DOI lookup map
+        doi_to_entry = {}
+        for entry in entries:
+            doi = entry.get('fields', {}).get('doi', '').lower().strip()
+            if doi:
+                doi_to_entry[doi] = entry
+
+        # Track citation contexts from documents
+        citation_contexts = {}  # key -> [(filename, sentence), ...]
+
+        if documents:
+            from bib_citation_tracker import BibCitationTracker
+            tracker = BibCitationTracker()
+
+            for doc_file in documents:
+                try:
+                    doc_citations = tracker.extract_citations_from_file(doc_file)
+                    for cite_key, contexts in doc_citations.items():
+                        if cite_key not in citation_contexts:
+                            citation_contexts[cite_key] = []
+                        citation_contexts[cite_key].extend([
+                            (doc_file, ctx['sentence']) for ctx in contexts
+                        ])
+                except Exception as e:
+                    if verbose:
+                        print(f'  Warning: Could not track citations in {doc_file}: {e}', file=sys.stderr)
+
+        # Process each entry
+        llm_prompts = []
+        actions = []
+
+        for entry in entries:
+            key = entry.get('key', 'unknown')
+            doi = entry.get('fields', {}).get('doi', '').lower().strip()
+
+            # Get contexts for this citation
+            contexts = citation_contexts.get(key, [])
+
+            if not contexts:
+                continue
+
+            stats['citations_validated'] += 1
+            sentences = [ctx[1] for ctx in contexts]
+
+            if use_llm:
+                # Generate LLM validation prompt
+                prompt = self.generate_llm_validation_prompt(entry, sentences)
+                llm_prompts.append({
+                    'key': key,
+                    'prompt': prompt
+                })
+                stats['llm_prompts_generated'] += 1
+
+                if verbose:
+                    print(f'\n[{key}] LLM Prompt Generated:', file=sys.stderr)
+                    print(f'  Contexts: {len(contexts)} sentences', file=sys.stderr)
+            else:
+                # Use semantic validation
+                result = self.validate_citation_semantic(entry, sentences)
+
+                validation_result = {
+                    'key': key,
+                    'status': result.get('status', 'unknown'),
+                    'score': result.get('best_score', 0),
+                    'contexts_count': len(contexts)
+                }
+
+                stats['validation_results'].append(validation_result)
+
+                if result.get('status') == 'supported':
+                    stats['citations_appropriate'] += 1
+                    actions.append({
+                        'key': key,
+                        'action': 'keep',
+                        'reason': 'Citation is appropriate'
+                    })
+                else:
+                    stats['citations_inappropriate'] += 1
+
+                    # Search for replacement
+                    suggestions = self.search_for_replacement_citations(
+                        sentences[0] if sentences else '',
+                        exclude_dois=[doi] if doi else []
+                    )
+
+                    if suggestions:
+                        actions.append({
+                            'key': key,
+                            'action': 'replace',
+                            'reason': 'Found replacement candidates',
+                            'suggestions': suggestions[:3]
+                        })
+                    else:
+                        actions.append({
+                            'key': key,
+                            'action': 'revise',
+                            'reason': 'No replacement found, suggest revising sentence'
+                        })
+
+        stats['actions_taken'] = actions
+
+        # Print summary
+        print('\n' + '=' * 60, file=sys.stderr)
+        print('Smart Sync Summary', file=sys.stderr)
+        print('=' * 60, file=sys.stderr)
+        print(f'Total entries: {stats["total_entries"]}', file=sys.stderr)
+        print(f'Citations validated: {stats["citations_validated"]}', file=sys.stderr)
+        print(f'Appropriate citations: {stats["citations_appropriate"]}', file=sys.stderr)
+        print(f'Inappropriate citations: {stats["citations_inappropriate"]}', file=sys.stderr)
+
+        if use_llm and llm_prompts:
+            print('\n' + '-' * 60, file=sys.stderr)
+            print('LLM Validation Prompts Generated:', file=sys.stderr)
+            print('-' * 60, file=sys.stderr)
+            for item in llm_prompts:
+                print(f'\n[{item["key"]}]:', file=sys.stderr)
+                print(item['prompt'])
+
+        if actions:
+            print('\n' + '-' * 60, file=sys.stderr)
+            print('Recommended Actions:', file=sys.stderr)
+            print('-' * 60, file=sys.stderr)
+            for action in actions:
+                print(f'\n[{action["key"]}]: {action["action"].upper()}', file=sys.stderr)
+                print(f'  Reason: {action["reason"]}', file=sys.stderr)
+                if action.get('suggestions'):
+                    for sug in action['suggestions'][:2]:
+                        print(f'  → Suggestion: {sug.get("title", "N/A")[:50]}...', file=sys.stderr)
+
+        return stats
+
+
+def _print_single_citation_result(self, val: Dict):
         """Print single-citation validation result."""
         key = val.get('original_key', 'unknown')
         action = val.get('suggested_action', 'unknown')
