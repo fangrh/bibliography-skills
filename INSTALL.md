@@ -1,13 +1,13 @@
 # Installation Guide for Bibliography Skills
 
-## Quick Install (Plugin Market)
+## Quick Install (Marketplace)
 
 ```bash
-# Add the market source
-/plugin add market
+# Add the marketplace
+/plugin marketplace add fangrh/bibliography-skills
 
 # Install the bibliography skills
-/plugin install bibliography-skills
+/plugin install bibliography-skills@fangrh-bibliography-skills
 ```
 
 ## Manual Installation

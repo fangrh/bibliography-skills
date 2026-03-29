@@ -1,0 +1,58 @@
+{
+  "name": "bibliography-skills",
+  "version": "1.0.0",
+  "description": "Zotero-like bibliography extraction and management for Claude Code",
+  "author": "fangrh",
+  "license": "MIT",
+  "repository": "https://github.com/fangrh/bibliography-skills",
+  "keywords": [
+    "bibliography",
+    "bibtex",
+    "zotero",
+    "academic",
+    "latex",
+    "citations",
+    "doi",
+    "arxiv"
+  ],
+  "claude": {
+    "commands": [
+      "bib-extractor",
+      "bib-preview",
+      "bib-search"
+    ],
+    "skills": [
+      "bib-extractor"
+    ],
+    "dependencies": [
+      "requests"
+    ]
+  },
+  "install": {
+    "commands": "commands/",
+    "scripts": "scripts/",
+    "dependencies": "requirements.txt"
+  },
+  "files": [
+    {
+      "source": "commands/bib-extractor.md",
+      "destination": "~/.claude/commands/bib-extractor.md"
+    },
+    {
+      "source": "commands/bib-preview.md",
+      "destination": "~/.claude/commands/bib-preview.md"
+    },
+    {
+      "source": "commands/bib-search.md",
+      "destination": "~/.claude/commands/bib-search.md"
+    },
+    {
+      "source": "scripts/bib_extractor.py",
+      "destination": "~/.claude/scripts/bib_extractor.py"
+    },
+    {
+      "source": "SKILL.md",
+      "destination": "~/.claude/skills/bib-extractor.md"
+    }
+  ]
+}

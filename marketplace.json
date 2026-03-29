@@ -1,0 +1,14 @@
+{
+  "name": "bibliography-skills-marketplace",
+  "version": "1.0.0",
+  "description": "Bibliography skills marketplace for Claude Code",
+  "packages": [
+    {
+      "name": "bibliography-skills",
+      "version": "1.0.0",
+      "description": "Zotero-like bibliography extraction and management",
+      "author": "fangrh",
+      "repository": "fangrh/bibliography-skills"
+    }
+  ]
+}
