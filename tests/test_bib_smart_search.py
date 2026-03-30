@@ -52,6 +52,24 @@ class BibSmartSearchTests(unittest.TestCase):
             "Strain dependence of {$T_c$} in suspended NbSe2",
         )
 
+    def test_title_normalizer_wraps_bare_math_in_bibtex_title(self):
+        spec = importlib.util.spec_from_file_location(
+            "title_normalizer",
+            TITLE_NORMALIZER_PATH,
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+
+        bibtex_title = module.normalize_title_for_bibtex(
+            "Strain dependence of $T_c$ in suspended NbSe2"
+        )
+
+        self.assertEqual(
+            bibtex_title,
+            "Strain dependence of {$T_c$} in suspended NbSe2",
+        )
+
     def test_common_knowledge_sentence_is_not_marked_for_citation(self):
         module = load_module()
         analyzer = module.CitationNeedAnalyzer()

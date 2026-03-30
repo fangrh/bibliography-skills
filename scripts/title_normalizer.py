@@ -54,6 +54,7 @@ def normalize_title_for_bibtex(raw_title: str) -> str:
         lambda base, subscript: "{$" + base + "_" + subscript + "$}",
     )
     value = re.sub(r"\{\{(\$[^$]+\$)\}\}", r"{\1}", value)
+    value = re.sub(r"(?<!\{)(\$[^$]+\$)(?!\})", r"{\1}", value)
     value = value.replace(" andV-I", " and V-I")
     value = value.replace("V-Icharacteristics", "V-I characteristics")
     value = value.replace("NbSe 2", "NbSe2")
