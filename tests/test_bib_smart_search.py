@@ -7,6 +7,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "bib_smart_search.py"
 EXTRACTOR_PATH = REPO_ROOT / "scripts" / "bib_extractor.py"
+TITLE_NORMALIZER_PATH = REPO_ROOT / "scripts" / "title_normalizer.py"
 
 
 def load_module():
@@ -18,6 +19,21 @@ def load_module():
 
 
 class BibSmartSearchTests(unittest.TestCase):
+    def test_title_normalizer_converts_tc_math_for_plain_text(self):
+        spec = importlib.util.spec_from_file_location(
+            "title_normalizer",
+            TITLE_NORMALIZER_PATH,
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+
+        plain = module.normalize_title_for_plain_text(
+            "Strain dependence of $T_{c}$ in suspended NbSe2"
+        )
+
+        self.assertEqual(plain, "Strain dependence of Tc in suspended NbSe2")
+
     def test_common_knowledge_sentence_is_not_marked_for_citation(self):
         module = load_module()
         analyzer = module.CitationNeedAnalyzer()
@@ -137,6 +153,26 @@ class BibSmartSearchTests(unittest.TestCase):
 
         self.assertIn("sensing of 3He", cleaned)
         self.assertNotIn("<mml:math", cleaned)
+
+    def test_local_bib_extractor_normalizes_tc_title_math(self):
+        spec = importlib.util.spec_from_file_location(
+            "bib_extractor",
+            EXTRACTOR_PATH,
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        extractor = module.BibExtractor()
+
+        dirty = """@article{tmp,
+  title = {Strain dependence of $T_{c}$ in suspended NbSe2},
+  journal = {Nature Communications},
+  doi = {10.1038/s41467-024-48306-0}
+}"""
+
+        cleaned = extractor._fix_bibtex_fields(dirty, "10.1038/s41467-024-48306-0")
+
+        self.assertIn("title      = {Strain dependence of {$T_c$} in suspended NbSe2}", cleaned)
 
     def test_local_bib_extractor_backfills_article_number_into_pages(self):
         spec = importlib.util.spec_from_file_location(

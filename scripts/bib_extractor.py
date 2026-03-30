@@ -13,6 +13,12 @@ from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from pathlib import Path
 import time
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from title_normalizer import normalize_title_for_bibtex
+
 try:
     import requests
 except ImportError:
@@ -259,6 +265,8 @@ class BibExtractor:
             'notes': 'Uses PMID identifier'
         }
     }
+
+    FIELD_PATTERN = r'(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}'
 
     def __init__(self, timeout: int = 15, use_full_journal_name: bool = False):
         self.timeout = timeout
@@ -881,14 +889,16 @@ class BibExtractor:
 
         # Extract all fields
         fields = {}
-        field_pattern = r'(\w+)\s*=\s*\{([^}]+)\}'
-        for match in re.finditer(field_pattern, bibtex):
+        for match in re.finditer(self.FIELD_PATTERN, bibtex):
             field_name = match.group(1).lower()
             field_value = match.group(2).strip()
             fields[field_name] = field_value
 
         for field_name in list(fields.keys()):
-            fields[field_name] = self._clean_bibtex_text(fields[field_name])
+            if field_name == 'title':
+                fields[field_name] = normalize_title_for_bibtex(fields[field_name])
+            else:
+                fields[field_name] = self._clean_bibtex_text(fields[field_name])
 
         fields = self._backfill_fields_from_crossref(fields, crossref_metadata)
 
@@ -1020,8 +1030,7 @@ class BibExtractor:
         """
         # Extract fields
         fields = {}
-        field_pattern = r'(\w+)\s*=\s*\{([^}]+)\}'
-        for match in re.finditer(field_pattern, bibtex):
+        for match in re.finditer(self.FIELD_PATTERN, bibtex):
             field_name = match.group(1).lower()
             field_value = match.group(2).strip()
             fields[field_name] = field_value
@@ -1184,8 +1193,7 @@ class BibExtractor:
             LaTeX \\href command with inline citation
         """
         fields = {}
-        field_pattern = r'(\w+)\s*=\s*\{([^}]+)\}'
-        for match in re.finditer(field_pattern, bibtex):
+        for match in re.finditer(self.FIELD_PATTERN, bibtex):
             field_name = match.group(1).lower()
             field_value = match.group(2).strip()
             fields[field_name] = field_value
@@ -1511,7 +1519,7 @@ class BibExtractor:
         # Parse entry for author and year
         author_match = re.search(r'author\s*=\s*\{([^}]+)\}', bibtex)
         year_match = re.search(r'year\s*=\s*\{([^}]+)\}', bibtex)
-        title_match = re.search(r'title\s*=\s*\{([^}]+)\}', bibtex)
+        title_match = re.search(r'title\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}', bibtex)
 
         # Get first author's last name
         first_author = 'Unknown'
