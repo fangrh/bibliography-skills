@@ -43,6 +43,28 @@ class CitationNeedAnalyzer:
     """Analyze text to identify statements needing citations."""
 
     FIELD_PATTERN = r'(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}'
+    NOTE_STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+        'this', 'that', 'these', 'those', 'it', 'its', 'they', 'their', 'we',
+        'our', 'has', 'have', 'had', 'will', 'would', 'could', 'should',
+        'can', 'may', 'might', 'must', 'shall', 'which', 'who', 'whom',
+        'whose', 'what', 'where', 'when', 'why', 'how', 'as', 'than', 'so',
+        'very', 'too', 'also', 'just', 'only', 'even', 'not', 'no', 'here',
+        'paper', 'work', 'study'
+    }
+    CONTRIBUTION_PATTERNS = [
+        (r'^(here\s+)?we\s+(demonstrate|report|show|present|develop|fabricate|realize|investigate|measure|observe|find)\b', 3.0),
+        (r'^(in this work|in this paper|this work|this paper)\b', 2.5),
+        (r'\bwe\s+(demonstrate|report|show|present|develop|fabricate|realize|investigate|measure|observe|find)\b', 2.5),
+        (r'\b(the results|our experiments|our measurements)\s+(show|demonstrate|reveal)\b', 2.2),
+    ]
+    BACKGROUND_PATTERNS = [
+        (r'\b(promising platform|attracted (?:great |considerable )?attention|growing interest)\b', -2.5),
+        (r'\b(in recent years|recent advances|recent progress)\b', -2.0),
+        (r'\b(is|are)\s+(important|crucial|essential|key)\s+for\b', -1.7),
+        (r'\b(has|have)\s+been\s+(widely|extensively)\s+(studied|used|investigated)\b', -1.7),
+    ]
 
     DOMAIN_ANCHOR_PATTERNS = [
         ('superconducting qubit', r'\bsuperconduct(?:ing)?\s+qubit[s]?\b'),
@@ -342,6 +364,85 @@ class CitationNeedAnalyzer:
         text = re.sub(r'\\[a-zA-Z]+', ' ', text)
         text = text.replace('{', ' ').replace('}', ' ')
         return re.sub(r'\s+', ' ', text).strip()
+
+    def _split_reference_sentences(self, text: str) -> List[str]:
+        """Split title/abstract text into sentence-like units."""
+        if not text:
+            return []
+        text = self._strip_latex(text)
+        parts = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+        return [part.strip() for part in parts if part.strip()]
+
+    def _reference_title_terms(self, title: str) -> Set[str]:
+        """Extract meaningful title terms for contribution ranking."""
+        cleaned = self._strip_latex(title)
+        words = re.findall(r'\b[A-Za-z][A-Za-z0-9/-]{1,}\b', cleaned.lower())
+        return {
+            word for word in words
+            if word not in self.NOTE_STOP_WORDS and len(word) > 2
+        }
+
+    def _score_reference_sentence(self, sentence: str, title_terms: Set[str], index: int) -> float:
+        """Rank a sentence by how well it states what the reference actually does."""
+        lowered = sentence.lower()
+        score = 0.0
+
+        for pattern, weight in self.CONTRIBUTION_PATTERNS:
+            if re.search(pattern, lowered):
+                score += weight
+
+        for pattern, weight in self.BACKGROUND_PATTERNS:
+            if re.search(pattern, lowered):
+                score += weight
+
+        if index == 0 and any(re.search(pattern, lowered) for pattern, _ in self.BACKGROUND_PATTERNS):
+            score -= 1.0
+
+        sentence_terms = set(re.findall(r'\b[A-Za-z][A-Za-z0-9/-]{1,}\b', lowered))
+        title_overlap = len(sentence_terms & title_terms)
+        score += min(title_overlap * 0.35, 2.0)
+
+        word_count = len(sentence.split())
+        if 8 <= word_count <= 35:
+            score += 0.4
+        elif word_count < 5:
+            score -= 0.8
+
+        return score
+
+    def extract_reference_note(self, candidate: Dict) -> Dict:
+        """Extract the sentence that best states what a reference actually does."""
+        title = self._strip_latex(candidate.get('title', '') or '').strip()
+        abstract = candidate.get('abstract', '') or ''
+        title_terms = self._reference_title_terms(title)
+        abstract_sentences = self._split_reference_sentences(abstract)
+
+        if not abstract_sentences:
+            note = title
+            return {
+                'best_evidence': title,
+                'reference_note': note,
+            }
+
+        ranked = []
+        for index, sentence in enumerate(abstract_sentences):
+            ranked.append((
+                self._score_reference_sentence(sentence, title_terms, index),
+                index,
+                sentence,
+            ))
+
+        ranked.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+        best_sentence = ranked[0][2]
+
+        note = best_sentence
+        if title and title.lower() not in best_sentence.lower():
+            note = f'{title}. {best_sentence}'
+
+        return {
+            'best_evidence': best_sentence,
+            'reference_note': note,
+        }
 
     def _extract_anchor_terms(self, text: str) -> List[str]:
         """Extract domain anchor phrases that should strongly constrain matching."""
@@ -662,6 +763,9 @@ class CitationNeedAnalyzer:
             reranked = [candidate for candidate in reranked if candidate.get('score', 0.0) > 0.0][:max_results]
         finalized = []
         for candidate in reranked:
+            note_summary = self.extract_reference_note(candidate)
+            candidate['best_evidence'] = note_summary['best_evidence']
+            candidate['reference_note'] = note_summary['reference_note']
             doi = candidate.get('doi', '')
             if not doi:
                 bibtex = candidate.get('bibtex', '')
@@ -848,6 +952,8 @@ class CitationNeedAnalyzer:
                         print(f'      DOI: {cite["doi"]}')
                         if cite.get('inline_citation'):
                             print(f'      Inline: {cite["inline_citation"]}')
+                        if cite.get('reference_note'):
+                            print(f'      Note: {cite["reference_note"]}')
 
         # Show OK sentences if requested
         if show_ok:

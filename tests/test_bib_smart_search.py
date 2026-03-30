@@ -322,6 +322,30 @@ class BibSmartSearchTests(unittest.TestCase):
         self.assertGreater(reranked[0]["score"], 0.0)
         self.assertEqual(reranked[-1]["score"], 0.0)
 
+    def test_reference_note_prefers_contribution_sentence_over_background(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        candidate = {
+            "title": "Gate-Controlled Supercurrent in Epitaxial Al/InAs Nanowires",
+            "abstract": (
+                "Hybrid superconductor-semiconductor nanowires are a promising platform "
+                "for topological quantum devices. Here we demonstrate gate-controlled "
+                "supercurrent in epitaxial Al/InAs nanowires. The supercurrent remains "
+                "tunable over a broad gate range."
+            ),
+            "journal": "Nano Letters",
+        }
+
+        summary = analyzer.extract_reference_note(candidate)
+
+        self.assertEqual(
+            summary["best_evidence"],
+            "Here we demonstrate gate-controlled supercurrent in epitaxial Al/InAs nanowires.",
+        )
+        self.assertIn("gate-controlled supercurrent", summary["reference_note"].lower())
+        self.assertNotIn("promising platform", summary["reference_note"].lower())
+
     def test_suggest_citations_filters_zero_score_irrelevant_results(self):
         module = load_module()
         analyzer = module.CitationNeedAnalyzer()
