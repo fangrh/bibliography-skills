@@ -245,6 +245,23 @@ class BibSmartSearchTests(unittest.TestCase):
         self.assertIn("Nature Communications", inline)
         self.assertNotIn("Nat. Commun.", inline)
 
+    def test_bib_searcher_preserves_tc_case_in_local_bib_display_title(self):
+        module = load_module()
+        analyzer = module.CitationNeedAnalyzer()
+
+        entry = """@article{tmp,
+  title = {Strain dependence of {$T_c$} in suspended NbSe2},
+  journal = {Nature Communications},
+  doi = {10.1038/s41467-024-48306-0}
+}"""
+
+        parsed = analyzer._parse_bib_entry(entry)
+
+        self.assertEqual(
+            parsed["title"],
+            "Strain dependence of T_c in suspended NbSe2",
+        )
+
     def test_rerank_prefers_anchor_matched_phonon_qubit_paper(self):
         module = load_module()
         analyzer = module.CitationNeedAnalyzer()

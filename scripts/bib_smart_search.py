@@ -42,6 +42,8 @@ class SentenceAnalysis:
 class CitationNeedAnalyzer:
     """Analyze text to identify statements needing citations."""
 
+    FIELD_PATTERN = r'(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}'
+
     DOMAIN_ANCHOR_PATTERNS = [
         ('superconducting qubit', r'\bsuperconduct(?:ing)?\s+qubit[s]?\b'),
         ('mechanical phonon', r'\bmechanical\s+phonon[s]?\b'),
@@ -395,14 +397,15 @@ class CitationNeedAnalyzer:
     def _parse_bib_entry(self, entry: str) -> Dict:
         """Parse a BibTeX entry into a candidate record."""
         fields = {}
-        for match in re.finditer(r'(\w+)\s*=\s*\{([^}]+)\}', entry):
+        for match in re.finditer(self.FIELD_PATTERN, entry):
             fields[match.group(1).lower()] = match.group(2).strip()
 
         key_match = re.match(r'@\w+\{([^,]+),', entry.strip())
+        display_title = self._strip_latex(fields.get('title', ''))
         return {
             'cite_key': key_match.group(1) if key_match else '',
             'doi': fields.get('doi', ''),
-            'title': fields.get('title', ''),
+            'title': display_title,
             'authors': fields.get('author', ''),
             'year': fields.get('year', ''),
             'journal': fields.get('journal', '') or fields.get('booktitle', ''),
