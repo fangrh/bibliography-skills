@@ -12,7 +12,7 @@ Installation guide for using Bibliography Skills with Codex or Claude Code. This
 Tell Codex:
 
 ```text
-Clone this repo to ~/.codex/bibliography-skills, symlink it into ~/.agents/skills/bibliography-skills, install requirements.txt, and tell me when to restart Codex.
+Clone https://github.com/fangrh/bibliography-skills.git to ~/.codex/bibliography-skills, symlink it into ~/.agents/skills/bibliography-skills, install requirements.txt, and tell me when to restart Codex.
 ```
 
 ### Prerequisites
