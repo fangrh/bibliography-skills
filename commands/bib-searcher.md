@@ -40,7 +40,8 @@ Read a LaTeX, Markdown, or plain-text document sentence by sentence, decide whic
    - Reuse existing entries when possible
 5. **Search external sources** - Only when local search fails:
    - CrossRef API (primary)
-   - OpenAlex API (fallback)
+   - OpenAlex API (fallback 1)
+   - Semantic Scholar API (fallback 2)
 6. **Rerank candidates** - Score by:
    - Term overlap with sentence
    - Quantitative value matching

@@ -56,7 +56,7 @@ Core behavior:
 2. Ignore obvious common-knowledge sentences
 3. Flag factual or quantitative claims that need support
 4. Reuse the current `.bib` file first when possible
-5. Search external sources only for unsupported claims
+5. Search external sources only for unsupported claims (CrossRef → OpenAlex → Semantic Scholar)
 6. Hand any newly selected DOI back to `bib-extractor` for normalization into the target `.bib`
 7. Return inline citation suggestions in `Journal, volume, page, (year)` format only after that normalization step succeeds
 
