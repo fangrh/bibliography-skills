@@ -17,12 +17,6 @@
   "repository": "https://github.com/fangrh/bibliography-skills",
   "author": "fangrh",
   "license": "MIT",
-  "claude": {
-    "commands": [
-      "bib-extractor",
-      "bib-searcher"
-    ]
-  },
   "scripts": {
     "searcher": "python3 scripts/bib_smart_search.py",
     "sync-version": "python3 scripts/sync_version.py"

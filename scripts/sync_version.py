@@ -5,10 +5,11 @@ Single source of truth:
   package.json in the bibliography-skills repo
 
 This script updates:
-  - manifest.json
   - package.json
-  - packages/bibliography-skills/manifest.json
-  - marketplace.json
+  - claude/.claude-plugin
+  - claude/manifest.json
+  - claude/packages/bibliography-skills/manifest.json
+  - claude/marketplace.json
   - .claude/marketplace.json
   - ../Bibliography-skills-marketplace/.claude-plugin/marketplace.json
 """
@@ -33,6 +34,19 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def sync_claude_plugin(path: Path, version: str) -> bool:
+    if not path.exists():
+        return False
+
+    content = path.read_text(encoding="utf-8")
+    updated = re.sub(r"^version:\s*.+$", f"version: {version}", content, flags=re.MULTILINE)
+    if updated == content:
+        return False
+
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def require_version(version: str) -> str:
     version = version.strip()
     if not VERSION_RE.match(version):
@@ -45,9 +59,9 @@ def sync_repo_versions(repo_root: Path, version: str) -> list[Path]:
 
     targets = [
         repo_root / "package.json",
-        repo_root / "manifest.json",
-        repo_root / "packages" / "bibliography-skills" / "manifest.json",
-        repo_root / "marketplace.json",
+        repo_root / "claude" / "manifest.json",
+        repo_root / "claude" / "packages" / "bibliography-skills" / "manifest.json",
+        repo_root / "claude" / "marketplace.json",
         repo_root / ".claude" / "marketplace.json",
     ]
 
@@ -60,6 +74,10 @@ def sync_repo_versions(repo_root: Path, version: str) -> list[Path]:
             data["version"] = version
             write_json(path, data)
             changed.append(path)
+
+    claude_plugin = repo_root / "claude" / ".claude-plugin"
+    if sync_claude_plugin(claude_plugin, version):
+        changed.append(claude_plugin)
 
     marketplace_repo = repo_root.parent / "Bibliography-skills-marketplace" / ".claude-plugin" / "marketplace.json"
     if marketplace_repo.exists():

@@ -1,18 +1,17 @@
 # Installation Guide for Bibliography Skills
 
-This repository supports both Claude Code and Codex installations.
+This document covers Claude Code installation. For Codex, use [.codex/INSTALL.md](.codex/INSTALL.md).
 
-## Quick Install (Marketplace)
+## Claude Code Marketplace
 
 ```bash
-# Add the marketplace
 /plugin marketplace add fangrh/bibliography-skills
-
-# Install the bibliography skills
 /plugin install bibliography-skills@fangrh-bibliography-skills
 ```
 
-## Manual Installation
+The Claude plugin assets are now packaged from `claude/`.
+
+## Claude Code Manual Installation
 
 ### Step 1: Clone the Repository
 
@@ -27,105 +26,47 @@ cd bibliography-skills
 pip install -r requirements.txt
 ```
 
-### Step 3: Copy Commands to Claude Code
+### Step 3: Copy Claude Assets
 
 ```bash
-# Create commands directory if it doesn't exist
-mkdir -p ~/.claude/commands
-
-# Copy command files
-cp commands/* ~/.claude/commands/
-
-# Copy scripts
-cp scripts/* ~/.claude/scripts/
+mkdir -p ~/.claude/commands ~/.claude/scripts
+cp claude/commands/* ~/.claude/commands/
+cp scripts/bib_extractor.py ~/.claude/scripts/
+cp scripts/bib_smart_search.py ~/.claude/scripts/
 ```
 
-### Step 4: Install SKILL.md (Optional)
+### Step 4: Verify Installation
 
-```bash
-# Copy to project directory if working on a specific project
-cp SKILL.md ./
-
-# Or copy to global skills directory
-mkdir -p ~/.claude/skills
-cp SKILL.md ~/.claude/skills/bibliography-skills.md
-```
-
-## Codex Installation
-
-Codex discovers skills from `~/.agents/skills/<skill-name>/SKILL.md`.
-
-### Step 1: Install the Repository as a Skill Folder
-
-```bash
-mkdir -p ~/.agents/skills
-git clone https://github.com/fangrh/bibliography-skills.git ~/.agents/skills/bibliography-skills
-cd ~/.agents/skills/bibliography-skills
-```
-
-### Step 2: Install Python Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Step 3: Restart Codex
-
-Restart Codex so it rescans `~/.agents/skills/` and picks up the new `SKILL.md`.
-
-## Verification
-
-Test the installation:
-
-```bash
-# Test bib-extractor
-/bib-extractor --help
-
-# Test bib-searcher
-/bib-searcher --help
-```
-
-For Codex, verify by asking it to use the skill from any workspace after restart:
+In Claude Code, run:
 
 ```text
-Use bibliography-skills to add DOI 10.1038/s41586-021-03926-0 to references.bib
+/bib-searcher paper.tex
 ```
 
 ## Available Commands
 
 | Command | Description |
 |---------|-------------|
-| `/bib-extractor` | Extract BibTeX from DOIs, URLs, PMIDs, arXiv IDs |
-| `/bib-searcher` | Analyze text, reuse existing references, and search/update citations |
+| `/bib-extractor` | Extract BibTeX from DOIs, URLs, PMIDs, and arXiv IDs |
+| `/bib-searcher` | Analyze text, reuse existing references first, and search for supporting citations |
 
 ## Uninstallation
 
 ```bash
-# Remove command files
-rm ~/.claude/commands/bib-extractor.md
-rm ~/.claude/commands/bib-searcher.md
-
-# Remove scripts
-rm ~/.claude/scripts/bib_extractor.py
-rm ~/.claude/scripts/bib_smart_search.py
-```
-
-For Codex:
-
-```bash
-rm -rf ~/.agents/skills/bibliography-skills
+rm -f ~/.claude/commands/bib-extractor.md
+rm -f ~/.claude/commands/bib-searcher.md
+rm -f ~/.claude/scripts/bib_extractor.py
+rm -f ~/.claude/scripts/bib_smart_search.py
 ```
 
 ## Troubleshooting
 
 **Commands not found in Claude Code**: Ensure the command files are in `~/.claude/commands/`
 
-**Skill not found in Codex**: Ensure the repo is installed at `~/.agents/skills/bibliography-skills` and restart Codex
-
-**Python not found**: Ensure Python 3 is installed and in PATH
+**Python not found**: Ensure Python 3 is installed and in `PATH`
 
 **requests module not found**: Run `pip install requests`
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License

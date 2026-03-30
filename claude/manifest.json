@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
   "version": "1.0.2",
-  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code",
   "author": "fangrh",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,7 @@
     ]
   },
   "install": {
-    "commands_dir": "commands",
+    "commands_dir": "claude/commands",
     "scripts_dir": "scripts",
     "dependencies": "requirements.txt"
   }

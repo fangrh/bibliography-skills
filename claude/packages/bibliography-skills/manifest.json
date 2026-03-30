@@ -1,7 +1,7 @@
 {
   "name": "bibliography-skills",
   "version": "1.0.2",
-  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code",
   "author": "fangrh",
   "license": "MIT",
   "repository": "fangrh/bibliography-skills-marketplace",
@@ -29,17 +29,17 @@
     ]
   },
   "install": {
-    "commands": "commands/",
+    "commands": "claude/commands/",
     "scripts": "scripts/",
     "dependencies": "requirements.txt"
   },
   "files": [
     {
-      "source": "commands/bib-extractor.md",
+      "source": "claude/commands/bib-extractor.md",
       "destination": "~/.claude/commands/bib-extractor.md"
     },
     {
-      "source": "commands/bib-searcher.md",
+      "source": "claude/commands/bib-searcher.md",
       "destination": "~/.claude/commands/bib-searcher.md"
     },
     {
@@ -49,10 +49,6 @@
     {
       "source": "scripts/bib_smart_search.py",
       "destination": "~/.claude/scripts/bib_smart_search.py"
-    },
-    {
-      "source": "SKILL.md",
-      "destination": "~/.claude/skills/bib-extractor.md"
     }
   ]
 }

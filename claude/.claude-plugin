@@ -1,0 +1,5 @@
+name: bibliography-skills
+version: 1.0.2
+type: module
+description: Bibliography extraction and sentence-aware citation search for Claude Code
+main: claude/commands/
