@@ -530,7 +530,7 @@ class CitationNeedAnalyzer:
         if results:
             return results
 
-        # Fallback: OpenAlex
+        # Fallback 1: OpenAlex
         try:
             url = 'https://api.openalex.org/works'
             params = {
@@ -567,6 +567,56 @@ class CitationNeedAnalyzer:
                         results.append(record)
         except Exception as e:
             print(f'  OpenAlex search error: {e}', file=sys.stderr)
+
+        if results:
+            return results
+
+        # Fallback 2: Semantic Scholar
+        try:
+            url = 'https://api.semanticscholar.org/graph/v1/paper/search'
+            params = {
+                'query': query,
+                'limit': max_results,
+                'fields': 'paperId,title,authors,year,journal,externalIds,abstract,venue',
+            }
+            response = self.session.get(url, params=params, timeout=timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+                for item in data.get('data', []):
+                    # Get DOI from external IDs
+                    external_ids = item.get('externalIds', {})
+                    doi = external_ids.get('DOI', '')
+                    if not doi:
+                        continue
+
+                    authors = []
+                    for author in item.get('authors', [])[:3]:
+                        name = author.get('name', '')
+                        if name:
+                            authors.append(name)
+
+                    journal = item.get('journal', {}) or {}
+                    journal_name = journal.get('name', '') if isinstance(journal, dict) else ''
+                    if not journal_name:
+                        journal_name = item.get('venue', '') or ''
+
+                    record = {
+                        'doi': doi,
+                        'title': item.get('title', ''),
+                        'authors': ' and '.join(authors) if authors else 'Unknown',
+                        'year': item.get('year'),
+                        'journal': journal_name,
+                        'abstract': item.get('abstract', '') or '',
+                        'type': 'article',
+                        'source': 'Semantic Scholar',
+                    }
+                    journal_text = (record.get('journal') or '').lower()
+                    doi_text = (record.get('doi') or '').lower()
+                    if allow_arxiv or ('arxiv' not in journal_text and 'arxiv' not in doi_text):
+                        results.append(record)
+        except Exception as e:
+            print(f'  Semantic Scholar search error: {e}', file=sys.stderr)
 
         return results
 
