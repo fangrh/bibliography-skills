@@ -3,6 +3,7 @@
 import pytest
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 # Add scripts directory to path
 scripts_dir = Path(__file__).parent.parent / 'scripts'
@@ -1403,6 +1404,106 @@ class TestBibSyncIoIntegration:
         content_after = bib_file.read_text()
         assert 'cite_order' not in content_after
         assert 'author = {Smith, John}' in content_after
+
+
+class TestSyncReferences:
+    """Tests for sync_references function."""
+
+    def test_sync_references(self, tmp_path):
+        """Test main sync function with existing entries."""
+        # Create test files
+        papis_bib = tmp_path / "papis.bib"
+        papis_bib.write_text('@article{key1, author={Test1}}\n@article{key2, author={Test2}}\n', encoding='utf-8')
+
+        main_bib = tmp_path / "main.bib"
+        main_bib.write_text('@article{key1, author={Test1}, doi={10.1234/one}}\n@article{key2, author={Test2}, doi={10.1234/two}}\n', encoding='utf-8')
+
+        bbl_file = tmp_path / "main.bbl"
+        bbl_file.write_text('\\bibitem{key2}\n\\bibitem{key1}\n', encoding='utf-8')
+
+        tex_file = tmp_path / "main.tex"
+        tex_file.write_text('\\documentclass{article}\n\\begin{document}\ncite{key2}\ncite{key1}\n\\bibliography{main}\n\\end{document}\n', encoding='utf-8')
+
+        # Mock compile_latex to return the bbl file
+        with patch.object(bib_sync, 'compile_latex', return_value=bbl_file):
+            # Test sync function
+            bib_sync.sync_references(tex_file, main_bib, papis_bib)
+
+        # Verify cite_order was added in the correct order
+        content = papis_bib.read_text(encoding='utf-8')
+        entries = bib_sync.read_bibtex(papis_bib)
+
+        # Check that key2 has cite_order = 1 (cited first)
+        key2_order = bib_sync.parse_bibtex_field(
+            next(e for e in entries if e['key'] == 'key2')['content'], 'cite_order'
+        )
+        assert key2_order == '1'
+
+        # Check that key1 has cite_order = 2 (cited second)
+        key1_order = bib_sync.parse_bibtex_field(
+            next(e for e in entries if e['key'] == 'key1')['content'], 'cite_order'
+        )
+        assert key1_order == '2'
+
+    def test_sync_references_remove_unused(self, tmp_path):
+        """Test that sync removes cite_order from unused entries."""
+        # Create test files
+        papis_bib = tmp_path / "papis.bib"
+        papis_bib.write_text('@article{key1, author={Test1}, cite_order={1}}\n@article{key2, author={Test2}, cite_order={2}}\n', encoding='utf-8')
+
+        main_bib = tmp_path / "main.bib"
+        main_bib.write_text('@article{key1, author={Test1}, doi={10.1234/one}}\n', encoding='utf-8')
+
+        bbl_file = tmp_path / "main.bbl"
+        bbl_file.write_text('\\bibitem{key1}\n', encoding='utf-8')
+
+        tex_file = tmp_path / "main.tex"
+        tex_file.write_text('\\documentclass{article}\n\\begin{document}\ncite{key1}\n\\bibliography{main}\n\\end{document}\n', encoding='utf-8')
+
+        # Mock compile_latex to return the bbl file
+        with patch.object(bib_sync, 'compile_latex', return_value=bbl_file):
+            # Test sync function
+            bib_sync.sync_references(tex_file, main_bib, papis_bib)
+
+        # Verify cite_order was removed from key2 (not cited)
+        entries = bib_sync.read_bibtex(papis_bib)
+        key2_content = next(e for e in entries if e['key'] == 'key2')['content']
+        key2_order = bib_sync.parse_bibtex_field(key2_content, 'cite_order')
+        assert key2_order is None
+
+        # Verify key1 still has cite_order
+        key1_content = next(e for e in entries if e['key'] == 'key1')['content']
+        key1_order = bib_sync.parse_bibtex_field(key1_content, 'cite_order')
+        assert key1_order == '1'
+
+    def test_sync_references_sorted_order(self, tmp_path):
+        """Test that sync produces entries sorted by cite_order."""
+        # Create test files with entries in reverse order
+        papis_bib = tmp_path / "papis.bib"
+        papis_bib.write_text('@article{key3, author={Test3}}\n@article{key1, author={Test1}}\n@article{key2, author={Test2}}\n', encoding='utf-8')
+
+        main_bib = tmp_path / "main.bib"
+        main_bib.write_text('@article{key1, author={Test1}, doi={10.1234/one}}\n@article{key2, author={Test2}, doi={10.1234/two}}\n@article{key3, author={Test3}, doi={10.1234/three}}\n', encoding='utf-8')
+
+        bbl_file = tmp_path / "main.bbl"
+        bbl_file.write_text('\\bibitem{key1}\n\\bibitem{key2}\n', encoding='utf-8')
+
+        tex_file = tmp_path / "main.tex"
+        tex_file.write_text('\\documentclass{article}\n\\begin{document}\ncite{key1}\ncite{key2}\n\\bibliography{main}\n\\end{document}\n', encoding='utf-8')
+
+        # Mock compile_latex to return the bbl file
+        with patch.object(bib_sync, 'compile_latex', return_value=bbl_file):
+            # Test sync function
+            bib_sync.sync_references(tex_file, main_bib, papis_bib)
+
+        # Verify entries are sorted by cite_order
+        sorted_entries = bib_sync.read_bibtex(papis_bib)
+
+        # key1 and key2 should come first (in citation order), key3 at end
+        # Since we only check relative order, find positions
+        positions = {e['key']: i for i, e in enumerate(sorted_entries)}
+        assert positions['key1'] < positions['key2']
+        assert positions['key2'] < positions['key3']
 
 
 if __name__ == '__main__':

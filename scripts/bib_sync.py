@@ -751,3 +751,88 @@ def sort_bibtex_by_cite_order(bib_path: Path) -> List[dict]:
     write_bibtex(sorted_entries, bib_path)
 
     return sorted_entries
+
+
+def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path) -> None:
+    """Main sync function. Tracks citation order and fetches missing references.
+
+    This function:
+    1. Compiles LaTeX to generate .bbl file
+    2. Parses cited keys from .bbl file
+    3. Reads papis.bib entries
+    4. Finds missing references
+    5. For each missing reference: tries to extract DOI from original .bib file,
+       calls papis to fetch, or prompts user for input
+    6. Adds cite_order field to cited entries
+    7. Removes cite_order field from uncited entries
+    8. Sorts papis.bib by cite_order
+    9. Writes updated entries to papis.bib
+
+    Args:
+        tex_path: Path to the .tex file to compile
+        bib_path: Path to the original BibTeX file (used for DOI extraction)
+        papis_bib_path: Path to the papis.bib file to update
+
+    Raises:
+        FileNotFoundError: If required files do not exist
+        OSError: If files cannot be read or written
+    """
+    # 1. Compile tex to get bbl
+    bbl_path = compile_latex(tex_path)
+    if not bbl_path or not bbl_path.exists():
+        print(f"Warning: Could not compile {tex_path}")
+        return
+
+    # 2. Parse cited keys from .bbl file
+    cited_keys = parse_bbl_citations(bbl_path)
+
+    # 3. Read papis.bib entries
+    papis_entries = read_bibtex(papis_bib_path)
+    papis_keys = set(entry['key'] for entry in papis_entries)
+
+    # 4. Find missing references
+    missing = set(cited_keys) - papis_keys
+
+    # 5. For each missing reference, try to fetch it
+    for key in missing:
+        # Try to extract DOI from original .bib file
+        doi = extract_doi_from_bib(bib_path, key)
+        if doi:
+            # Call papis to fetch the missing reference
+            result = papis_add(doi)
+            if result and result.returncode == 0:
+                print(f"Fetching missing reference: {key}")
+            else:
+                print(f"Warning: Failed to fetch {key} with DOI: {doi}")
+        else:
+            # Prompt user for input
+            print(f"Warning: No DOI found for {key}")
+            print(f"Please provide a DOI, URL, or other identifier for '{key}'")
+            user_input = input("Enter DOI/URL, or press Enter to skip: ").strip()
+            if user_input:
+                result = papis_add(user_input)
+                if result and result.returncode == 0:
+                    print(f"Successfully fetched reference for '{key}'")
+                else:
+                    print(f"Warning: Failed to fetch {key}")
+
+    # Re-read papis.bib entries after potential additions
+    papis_entries = read_bibtex(papis_bib_path)
+
+    # 6. Add cite_order field to cited entries
+    for idx, key in enumerate(cited_keys, start=1):
+        try:
+            update_entry_cite_order(papis_bib_path, key, str(idx))
+        except ValueError as e:
+            print(f"Warning: {e}")
+
+    # 7. Remove cite_order field from uncited entries
+    for entry in papis_entries:
+        if entry['key'] not in cited_keys:
+            try:
+                remove_entry_field(papis_bib_path, entry['key'], 'cite_order')
+            except ValueError as e:
+                print(f"Warning: {e}")
+
+    # 8. Sort and export papis.bib by cite_order
+    sort_bibtex_by_cite_order(papis_bib_path)
