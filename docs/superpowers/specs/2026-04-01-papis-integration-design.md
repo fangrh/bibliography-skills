@@ -23,7 +23,7 @@ This design documents the integration of [papis](https://github.com/papis/papis)
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    bib-extractor Command                          │
 │  - Replace current bib_extractor.py with papis-based implementation │
-│  - Fetch metadata via papis add --from-doi                      │
+│  - Fetch metadata via papis add --from doi                      │
 │  - Download PDF to current directory                             │
 │  - Append to papis.bib                                          │
 │  - Auto-add *.pdf to .gitignore                                 │
@@ -44,9 +44,9 @@ This design documents the integration of [papis](https://github.com/papis/papis)
 │                       bib-sync Command                            │
 │  - Parse <document>.tex → extract cited references               │
 │  - Compare with papis.bib entries                               │
-│  - Tag papis.bib entries with citation order (cite:1, cite:2, ...)│
+│  - Track citation order in papis.bib via custom 'cite_order' field    │
 │  - Auto-fetch missing references via papis                         │
-│  - Clear tags from unused references                               │
+│  - Unused references have no cite_order field                            │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -58,6 +58,21 @@ This design documents the integration of [papis](https://github.com/papis/papis)
 │  - Validate and fix metadata                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Papis Library Configuration
+
+Papis uses a library path to store its database. By default, this is `~/Documents/papers/`. For this plugin, we configure papis to use the current project directory:
+
+```bash
+papis -l . add --from doi <doi>
+```
+
+The `-l .` flag sets the library to the current directory, ensuring:
+- PDFs are downloaded to the current directory
+- `papis export --format bibtex` exports from the correct location
+- papis.bib is created/updated in the current directory
+
+Users can override this by setting `PAPIS_LIB_DIR` environment variable or creating a local `.papis` config file.
 
 ### File Structure
 
@@ -84,13 +99,13 @@ Uses Python subprocess to call `papis` commands directly.
 - Simple to implement, leverages papis's existing CLI
 - papis handles all metadata fetching, PDF downloading, database management
 - Easy to maintain as papis evolves
-- Can use `papis add --from-doi`, `papis update`, `papis export` commands
+- Can use `papis add --from doi`, `papis update`, `papis export` commands
 
 ### Workflow
 
 1. **Input**: DOI, URL, PMID, or arXiv ID
 2. **Normalize**: Convert to DOI format if needed
-3. **Fetch**: Call `papis add --from-doi <doi> --set tags=extracted --set note=""`
+3. **Fetch**: Call `papis -l . add --from doi <doi> --set tags=extracted --set note=""`
 4. **Download PDF**: papis automatically fetches available PDF to current directory
 5. **Update .gitignore**: Check for `*.pdf` pattern, append if missing
 6. **Export**: Call `papis export --format bibtex > papis.bib`
@@ -186,17 +201,58 @@ custom_questions:
 
 ### Subagent Isolation
 
-Use the `Agent` tool with `run_in_background=true`:
-- Subagent runs independently
-- Returns structured note content
-- Main agent context remains clean
-- Subagent context is discarded after task completion
+The subagent is launched using Claude Code's `Agent` tool with the following mechanism:
+
+```python
+def launch_note_subagent(pdf_path: str, doi: str) -> str:
+    """
+    Launch a subagent to parse PDF and generate note.
+    The subagent runs in isolation to preserve main context.
+    """
+    # Read PDF content for context
+    pdf_content = read_pdf_for_context(pdf_path)
+
+    # Launch subagent with focused prompt
+    result = Agent(
+        subagent_type="general-purpose",
+        prompt=f"""
+        Parse the PDF at {pdf_path} and extract information for the papis note field.
+
+        Answer these questions:
+        1. What system/approach does this paper use?
+        2. What does it implement/achieve?
+        3. What methods/algorithms are used?
+        4. What are the key results/findings?
+        5. What are the limitations or future work?
+        6. Extract key conclusions that can be used to correct sentences in main.tex.
+
+        Format as markdown with sections:
+        ## System
+        ## Implementation
+        ## Methods
+        ## Results
+        ## Limitations
+        ## Key Conclusions
+        """,
+        run_in_background=True
+    )
+
+    # Subagent context is discarded after completion
+    return result
+```
+
+Key points:
+- Subagent runs independently with its own context window
+- PDF content is provided as context to the subagent
+- Subagent returns only the structured note content
+- Main agent context is not polluted with PDF parsing details
+- Error handling: if subagent fails, log error and continue without note
 
 ### Note Storage
 
 Update papis note field:
 ```bash
-papis update --from-doi <doi> --set note="<markdown content>"
+papis update --from doi <doi> --set note="<markdown content>"
 ```
 
 ## bib-sync
@@ -209,9 +265,9 @@ papis update --from-doi <doi> --set note="<markdown content>"
 4. Parse .bbl to extract cited citation keys in order
 5. Read papis.bib entries
 6. Compare and sync:
-   - Tag entries found in .bbl with citation order (e.g., tag="cite:1", "cite:2", ...)
+   - Add 'cite_order' field to entries found in .bbl (e.g., cite_order=1, cite_order=2, ...)
+   - Remove 'cite_order' field from entries not in .bbl (so they appear at end when sorted)
    - For missing entries, call papis to fetch
-   - Clear tags from entries not in .bbl (so they appear at end when sorted by tag)
 7. Export updated papis.bib
 
 ### Python Script (`scripts/bib_sync.py`)
@@ -223,7 +279,8 @@ def parse_bbl_citations(bbl_path: Path) -> List[str]:
 def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path):
     """Main sync function."""
     # 1. Compile tex to get bbl
-    compile_latex(tex_path)
+    # Try pdflatex first, fallback to latex
+    compile_latex(tex_path, compilers=['pdflatex', 'xelatex', 'lualatex'])
 
     # 2. Parse cited keys
     cited_keys = parse_bbl_citations(tex_path.with_suffix('.bbl'))
@@ -235,22 +292,33 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path):
     # 4. Find missing
     missing = cited_keys - papis_keys
 
-    # 5. Fetch missing via papis (requires DOI or URL)
+    # 5. Fetch missing via papis
+    # For each missing key, try to find in original .bib for DOI
+    # If no DOI, ask user to provide or search by title/author
     for key in missing:
-        fetch_via_papis(key)
+        doi = extract_doi_from_original_bib(bib_path, key)
+        if doi:
+            papis_add(f'papis -l . add --from doi {doi}')
+        else:
+            # Ask user for DOI/URL or search by title/author
+            print(f"Missing DOI for citation key: {key}")
+            user_input = input("Enter DOI/URL, or press Enter to skip: ")
+            if user_input:
+                papis_add(f'papis -l . add --from doi {user_input}')
 
-    # 6. Tag entries
+    # 6. Add cite_order field to cited entries
     for idx, key in enumerate(cited_keys, start=1):
-        papis_update(key, tags=[f"cite:{idx}"])
+        papis_update(key, extra_fields={'cite_order': str(idx)})
 
-    # 7. Clear tags from unused
+    # 7. Remove cite_order field from unused entries
     for entry in papis_entries:
         if entry['key'] not in cited_keys:
-            papis_update(entry['key'], tags=[])
+            papis_update(entry['key'], remove_fields=['cite_order'])
 
-    # 8. Export
-    subprocess.run(['papis', 'export', '--format', 'bibtex'],
-                  stdout=open(papis_bib_path, 'w'))
+    # 8. Sort and export papis.bib by cite_order
+    sorted_entries = sorted(papis_entries,
+                         key=lambda e: int(e.get('cite_order', '9999')))
+    write_bibtex(sorted_entries, papis_bib_path)
 ```
 
 ### File Detection (Skill-Guided)
@@ -258,19 +326,59 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path):
 The bib-sync skill instructs the agent to:
 1. Scan current directory for `.tex` files
 2. Ask user which is the main document (if multiple)
-3. Extract bibliography filename from `\bibliography{...}` command
-4. Proceed with sync using identified files
+3. Extract bibliography filename(s) from .tex:
+   - `\bibliography{filename}` - Standard LaTeX
+   - `\addbibresource{filename}` - BibLaTeX
+   - Handle multiple files: `\bibliography{ref1,ref2}`
+   - Handle subdirectories: `\bibliography{refs/refs}`
+4. If multiple bibliography files found, ask user which to sync or sync all
+5. Proceed with sync using identified files
+
+```python
+def extract_bibliography_files(tex_content: str) -> List[str]:
+    """
+    Extract bibliography files from LaTeX content.
+    Handles multiple formats and multiple files.
+    """
+    # Match \bibliography{...}
+    bib_pattern = r'\\bibliography\s*\{([^}]+)\}'
+    matches = re.findall(bib_pattern, tex_content)
+
+    # Match \addbibresource{...} (BibLaTeX)
+    addbib_pattern = r'\\addbibresource\s*\{([^}]+)\}'
+    matches.extend(re.findall(addbib_pattern, tex_content))
+
+    # Parse comma-separated lists
+    files = []
+    for match in matches:
+        for f in match.split(','):
+            f = f.strip()
+            if f:
+                # Add .bib if not present
+                if not f.endswith('.bib'):
+                    f = f + '.bib'
+                files.append(f)
+
+    return files
+```
 
 ## bib-manage
 
+### Command Syntax
+
+```bash
+/bib-manage <action> [options]
+```
+
 ### Available Actions
 
-| Action | Description | Python Script |
-|---------|-------------|---------------|
-| `check-duplicates` | Find duplicate entries in papis.bib | `check_duplicates()` |
-| `sync-to-main` | Copy verified references to main.bib with corrected metadata | `sync_to_main()` |
-| `validate-metadata` | Check and fix incomplete/incorrect metadata | `validate_metadata()` |
-| `cleanup` | Remove unused entries, fix formatting | `cleanup()` |
+| Action | Description | Python Script | Example |
+|---------|-------------|---------------|---------|
+| `check-duplicates` | Find duplicate entries in papis.bib | `check_duplicates()` | `/bib-manage check-duplicates` |
+| `sync-to-main` | Copy verified references to main.bib with corrected metadata | `sync_to_main()` | `/bib-manage sync-to-main --tex-file main.tex --output refs.bib` |
+| `validate-metadata` | Check and fix incomplete/incorrect metadata | `validate_metadata()` | `/bib-manage validate-metadata papis.bib` |
+| `cleanup` | Remove unused entries, fix formatting | `cleanup()` | `/bib-manage cleanup --remove-uncited --main main.tex` |
+| `migrate` | Import existing .bib file into papis | `migrate_bib()` | `/bib-manage migrate --from existing.bib` |
 
 ### Python Utilities (`scripts/bib_utils.py`)
 
@@ -305,6 +413,22 @@ def fix_metadata(entry: Dict) -> Dict:
     - Fix DOI format
     - Normalize author names
     """
+```
+
+## Papis Initialization
+
+On first use in a new project, the system initializes a papis library in the current directory:
+
+```python
+def ensure_papis_initialized():
+    """
+    Ensure papis library exists in current directory.
+    Creates minimal .papis config if needed.
+    """
+    papis_dir = Path('.papis')
+    if not papis_dir.exists():
+        papis_dir.mkdir()
+        print("Initialized papis library in current directory")
 ```
 
 ## Dependencies
@@ -369,14 +493,28 @@ errors = {
 }
 ```
 
-## Migration Notes
+## Migration Strategy
 
-Since this replaces the entire `bib-extractor` implementation:
+### Migrating Existing Bibliographies
+
+For users with existing `.bib` files, provide migration capability:
+
+```bash
+/bib-manage migrate --from existing.bib
+```
+
+This command:
+1. Reads the existing .bib file
+2. Calls `papis -l . add --from bibtex existing.bib` for each entry
+3. Fetches PDFs for entries with DOIs
+4. Exports new `papis.bib`
+5. Preserves original .bib as backup
+
+### Migration Notes
 
 1. `papis.bib` becomes the source of truth (not the original .bib file)
 2. Original .bib files are preserved but not modified directly
-3. First run: user may want to migrate existing references to papis
-4. Optional enhancement: `/bib-extractor --migrate-from existing.bib`
+3. After migration, user can delete or archive original .bib files
 
 ## Testing Strategy
 
