@@ -656,3 +656,432 @@ author = {First Author and Second Person}
         assert 'First Author' in fixed['content']
         # Second author converted
         assert 'Person, Second' in fixed['content']
+
+
+class TestSyncToMain:
+    """Tests for sync_to_main function."""
+
+    def test_sync_cited_entries(self, tmp_path):
+        """Test syncing only cited entries to main.bib."""
+        papis_bib = tmp_path / 'papis.bib'
+        main_bib = tmp_path / 'main.bib'
+
+        papis_bib.write_text('''
+@article{smith2023,
+    author = {Smith, John},
+    title = {First Paper},
+    year = {2023},
+    doi = {10.1234/first.2023}
+}
+
+@article{jones2024,
+    author = {Jones, Jane},
+    title = {Second Paper},
+    year = {2024},
+    doi = {10.1234/second.2024}
+}
+
+@article{brown2022,
+    author = {Brown, Bob},
+    title = {Third Paper},
+    year = {2022},
+    doi = {10.1234/third.2022}
+}
+''', encoding='utf-8')
+
+        # Only cite smith2023 and brown2022
+        cited_keys = {'smith2023', 'brown2022'}
+
+        bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+        # Read the main.bib file and check contents
+        main_content = main_bib.read_text(encoding='utf-8')
+
+        # Should contain smith2023 and brown2022
+        assert '@article{smith2023,' in main_content
+        assert '@article{brown2022,' in main_content
+
+        # Should NOT contain jones2024 (not cited)
+        assert '@article{jones2024,' not in main_content
+
+    def test_sync_all_cited(self, tmp_path):
+        """Test syncing when all entries are cited."""
+        papis_bib = tmp_path / 'papis.bib'
+        main_bib = tmp_path / 'main.bib'
+
+        papis_bib.write_text('''
+@article{paper1,
+    author = {Author One},
+    title = {Title One},
+    year = {2023}
+}
+
+@article{paper2,
+    author = {Author Two},
+    title = {Title Two},
+    year = {2024}
+}
+''', encoding='utf-8')
+
+        # Cite all entries
+        cited_keys = {'paper1', 'paper2'}
+
+        bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+        main_content = main_bib.read_text(encoding='utf-8')
+
+        # Should contain both entries
+        assert '@article{paper1,' in main_content
+        assert '@article{paper2,' in main_content
+
+    def test_sync_none_cited(self, tmp_path):
+        """Test syncing when no entries are cited."""
+        papis_bib = tmp_path / 'papis.bib'
+        main_bib = tmp_path / 'main.bib'
+
+        papis_bib.write_text('''
+@article{paper1,
+    author = {Author One},
+    title = {Title One},
+    year = {2023}
+}
+''', encoding='utf-8')
+
+        # No entries cited
+        cited_keys = set()
+
+        bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+        main_content = main_bib.read_text(encoding='utf-8')
+
+        # Should be empty (only whitespace)
+        assert main_content.strip() == ''
+
+    def test_sync_preserves_entry_structure(self, tmp_path):
+        """Test that synced entries preserve their structure."""
+        papis_bib = tmp_path / 'papis.bib'
+        main_bib = tmp_path / 'main.bib'
+
+        papis_bib.write_text('''
+@article{smith2023,
+    author = {Smith, John and Doe, Jane},
+    title = {A Complex Paper Title: With Subtitle},
+    journal = {Journal of Tests},
+    year = {2023},
+    volume = {42},
+    number = {3},
+    pages = {123--145},
+    doi = {10.1234/test.2023}
+}
+''', encoding='utf-8')
+
+        cited_keys = {'smith2023'}
+
+        bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+        main_content = main_bib.read_text(encoding='utf-8')
+
+        # Check that all fields are present
+        assert 'author = {Smith, John and Doe, Jane}' in main_content
+        assert 'title = {A Complex Paper Title: With Subtitle}' in main_content
+        assert 'journal = {Journal of Tests}' in main_content
+        assert 'year = {2023}' in main_content
+        assert 'volume = {42}' in main_content
+        assert 'number = {3}' in main_content
+        assert 'pages = {123--145}' in main_content
+        assert 'doi = {10.1234/test.2023}' in main_content
+
+    def test_sync_overwrites_existing_main(self, tmp_path):
+        """Test that sync overwrites existing main.bib content."""
+        papis_bib = tmp_path / 'papis.bib'
+        main_bib = tmp_path / 'main.bib'
+
+        # Create initial papis.bib
+        papis_bib.write_text('''
+@article{new2025,
+    author = {New Author},
+    title = {New Paper},
+    year = {2025}
+}
+''', encoding='utf-8')
+
+        # Create existing main.bib with old content
+        main_bib.write_text('''
+@article{old2020,
+    author = {Old Author},
+    title = {Old Paper},
+    year = {2020}
+}
+''', encoding='utf-8')
+
+        cited_keys = {'new2025'}
+
+        bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+        main_content = main_bib.read_text(encoding='utf-8')
+
+        # Should have new content
+        assert '@article{new2025,' in main_content
+        # Old content should be gone
+        assert '@article{old2020,' not in main_content
+
+    def test_sync_multiple_entry_types(self, tmp_path):
+        """Test syncing entries of different types."""
+        papis_bib = tmp_path / 'papis.bib'
+        main_bib = tmp_path / 'main.bib'
+
+        papis_bib.write_text('''
+@article{article2023,
+    author = {Author One},
+    title = {Journal Article},
+    journal = {Journal},
+    year = {2023}
+}
+
+@book{book2022,
+    author = {Author Two},
+    title = {Book Title},
+    publisher = {Publisher},
+    year = {2022}
+}
+
+@inproceedings{conf2024,
+    author = {Author Three},
+    title = {Conference Paper},
+    booktitle = {Proceedings},
+    year = {2024}
+}
+''', encoding='utf-8')
+
+        cited_keys = {'article2023', 'conf2024'}
+
+        bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+        main_content = main_bib.read_text(encoding='utf-8')
+
+        # Should contain cited entries
+        assert '@article{article2023,' in main_content
+        assert '@inproceedings{conf2024,' in main_content
+
+        # Should NOT contain book entry (not cited)
+        assert '@book{book2022,' not in main_content
+
+    def test_sync_nonexistent_papis_bib(self, tmp_path):
+        """Test that FileNotFoundError is raised for non-existent papis.bib."""
+        papis_bib = tmp_path / 'nonexistent.bib'
+        main_bib = tmp_path / 'main.bib'
+        cited_keys = {'key1'}
+
+        with pytest.raises(FileNotFoundError):
+            bib_utils.sync_to_main(papis_bib, main_bib, cited_keys)
+
+
+class TestReadBibtex:
+    """Tests for read_bibtex function."""
+
+    def test_read_simple_entry(self, tmp_path):
+        """Test reading a simple BibTeX entry."""
+        bib_file = tmp_path / 'test.bib'
+        bib_file.write_text('''
+@article{smith2023,
+    author = {Smith, John},
+    title = {Test Paper},
+    year = {2023}
+}
+''', encoding='utf-8')
+
+        entries = bib_utils.read_bibtex(bib_file)
+
+        assert len(entries) == 1
+        assert entries[0]['type'] == 'article'
+        assert entries[0]['key'] == 'smith2023'
+        assert 'author = {Smith, John}' in entries[0]['content']
+
+    def test_read_multiple_entries(self, tmp_path):
+        """Test reading multiple BibTeX entries."""
+        bib_file = tmp_path / 'test.bib'
+        bib_file.write_text('''
+@article{paper1,
+    author = {Author One},
+    title = {Title One}
+}
+
+@book{paper2,
+    author = {Author Two},
+    title = {Title Two}
+}
+
+@inproceedings{paper3,
+    author = {Author Three},
+    title = {Title Three}
+}
+''', encoding='utf-8')
+
+        entries = bib_utils.read_bibtex(bib_file)
+
+        assert len(entries) == 3
+        assert entries[0]['type'] == 'article'
+        assert entries[1]['type'] == 'book'
+        assert entries[2]['type'] == 'inproceedings'
+
+    def test_read_handles_comments(self, tmp_path):
+        """Test that comments are stripped when reading."""
+        bib_file = tmp_path / 'test.bib'
+        bib_file.write_text('''
+% This is a comment
+@article{paper1,
+    author = {Author One},
+    title = {Title One}
+}
+% Another comment
+''', encoding='utf-8')
+
+        entries = bib_utils.read_bibtex(bib_file)
+
+        assert len(entries) == 1
+        # Comments should not be in the entry content
+        assert '%' not in entries[0]['content']
+
+    def test_read_empty_file(self, tmp_path):
+        """Test reading an empty BibTeX file."""
+        bib_file = tmp_path / 'test.bib'
+        bib_file.write_text('', encoding='utf-8')
+
+        entries = bib_utils.read_bibtex(bib_file)
+
+        assert entries == []
+
+    def test_read_with_nested_braces(self, tmp_path):
+        """Test reading entries with nested braces in content."""
+        bib_file = tmp_path / 'test.bib'
+        bib_file.write_text('''
+@article{paper1,
+    author = {Smith, John and {von} Neumann, John},
+    title = {Paper with {{nested}} braces},
+    abstract = {This has {nested {content}} inside}
+}
+''', encoding='utf-8')
+
+        entries = bib_utils.read_bibtex(bib_file)
+
+        assert len(entries) == 1
+        assert entries[0]['key'] == 'paper1'
+        # Should preserve nested content
+        assert '{von}' in entries[0]['content']
+        assert '{{nested}}' in entries[0]['content']
+
+    def test_read_nonexistent_file(self, tmp_path):
+        """Test reading a non-existent file."""
+        bib_file = tmp_path / 'nonexistent.bib'
+
+        with pytest.raises(FileNotFoundError):
+            bib_utils.read_bibtex(bib_file)
+
+
+class TestWriteBibtex:
+    """Tests for write_bibtex function."""
+
+    def test_write_simple_entry(self, tmp_path):
+        """Test writing a simple BibTeX entry."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [{
+            'type': 'article',
+            'key': 'smith2023',
+            'content': 'author = {Smith, John},\ntitle = {Test}'
+        }]
+
+        bib_utils.write_bibtex(entries, output_file)
+
+        content = output_file.read_text(encoding='utf-8')
+        assert '@article{smith2023,' in content
+        assert 'author = {Smith, John}' in content
+        assert 'title = {Test}' in content
+
+    def test_write_multiple_entries(self, tmp_path):
+        """Test writing multiple BibTeX entries."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [
+            {'type': 'article', 'key': 'paper1', 'content': 'title = {First}'},
+            {'type': 'book', 'key': 'paper2', 'content': 'title = {Second}'}
+        ]
+
+        bib_utils.write_bibtex(entries, output_file)
+
+        content = output_file.read_text(encoding='utf-8')
+        assert '@article{paper1,' in content
+        assert '@book{paper2,' in content
+
+    def test_write_adds_closing_brace(self, tmp_path):
+        """Test that write adds closing brace if content doesn't have it."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [{
+            'type': 'article',
+            'key': 'paper1',
+            'content': 'author = {Smith}'  # No closing brace
+        }]
+
+        bib_utils.write_bibtex(entries, output_file)
+
+        content = output_file.read_text(encoding='utf-8')
+        # Should end with a closing brace
+        assert content.strip().endswith('}')
+
+    def test_write_preserves_closing_brace(self, tmp_path):
+        """Test that write doesn't duplicate closing brace."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [{
+            'type': 'article',
+            'key': 'paper1',
+            'content': 'author = {Smith}\n}'  # Has closing brace
+        }]
+
+        bib_utils.write_bibtex(entries, output_file)
+
+        content = output_file.read_text(encoding='utf-8')
+        # Should not have double closing braces
+        assert '}}' not in content
+
+    def test_write_missing_type_raises_error(self, tmp_path):
+        """Test that missing 'type' raises ValueError."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [{
+            'key': 'paper1',
+            'content': 'author = {Smith}'
+        }]
+
+        with pytest.raises(ValueError, match="Entry must have 'type' and 'key' fields"):
+            bib_utils.write_bibtex(entries, output_file)
+
+    def test_write_missing_key_raises_error(self, tmp_path):
+        """Test that missing 'key' raises ValueError."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [{
+            'type': 'article',
+            'content': 'author = {Smith}'
+        }]
+
+        with pytest.raises(ValueError, match="Entry must have 'type' and 'key' fields"):
+            bib_utils.write_bibtex(entries, output_file)
+
+    def test_write_empty_content(self, tmp_path):
+        """Test writing entry with empty content."""
+        output_file = tmp_path / 'output.bib'
+
+        entries = [{
+            'type': 'article',
+            'key': 'paper1',
+            'content': ''
+        }]
+
+        bib_utils.write_bibtex(entries, output_file)
+
+        content = output_file.read_text(encoding='utf-8')
+        assert '@article{paper1,' in content
+        # Should still add a closing brace
+        assert content.strip().endswith('}')

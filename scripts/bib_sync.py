@@ -5,8 +5,6 @@ Bibliography Sync - BBL file parser and bibliography synchronization utilities.
 This module provides functions for:
 - Parsing .bbl files to extract citation keys
 - Extracting bibliography file references from LaTeX sources
-- Reading and writing BibTeX files
-- Parsing BibTeX entry fields
 """
 
 import re
@@ -14,6 +12,8 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional
+
+from bib_utils import read_bibtex, write_bibtex
 
 
 def read_bbl_file(bbl_path: Path) -> str:
@@ -205,123 +205,6 @@ def parse_bibtex_field(content: str, field: str, start: str = '{') -> Optional[s
     value = re.sub(r'\s+', ' ', value)
 
     return value if value else None
-
-
-def read_bibtex(bib_path: Path) -> List[dict]:
-    """Read BibTeX file and return list of entries.
-
-    Each entry is represented as a dictionary with:
-    - 'type': Entry type (article, book, inproceedings, etc.)
-    - 'key': Citation key
-    - 'content': Full entry content as string
-
-    Args:
-        bib_path: Path to the BibTeX file
-
-    Returns:
-        List of BibTeX entry dictionaries
-
-    Raises:
-        FileNotFoundError: If BibTeX file does not exist
-        OSError: If file cannot be read
-    """
-    content = bib_path.read_text(encoding='utf-8')
-
-    # Remove comments before parsing
-    content = re.sub(r'%.*$', '', content, flags=re.MULTILINE)
-
-    # Pattern to match BibTeX entries
-    # This is a more robust pattern that handles nested braces
-    # @type{key, ...} or @type (key, ...)
-    entry_pattern = r'@(\w+)\s*(?:\{|\(\{?)\s*(\w+)\s*,'
-
-    entries = []
-    # Find all entry start positions
-    for match in re.finditer(entry_pattern, content):
-        entry_type = match.group(1)
-        entry_key = match.group(2)
-        entry_start = match.start()
-
-        # Find the opening brace of the entry
-        open_brace = content.find('{', entry_start)
-        if open_brace == -1:
-            continue
-
-        # Count braces from the opening brace of the entry
-        brace_depth = 1
-        i = open_brace + 1
-        while i < len(content) and brace_depth > 0:
-            if content[i] == '{':
-                brace_depth += 1
-            elif content[i] == '}':
-                brace_depth -= 1
-            i += 1
-
-        # Extract the full entry content (excluding @type{key,)
-        # Find the comma after the key within the entry
-        key_end = match.end()  # Position after the comma following the key
-        if key_end < open_brace:
-            # The comma is before the opening brace, use it
-            entry_content = content[key_end:i - 1].strip()
-        else:
-            # Find the comma after the opening brace
-            after_key = content.find(',', open_brace)
-            if after_key != -1 and after_key < i:
-                entry_content = content[after_key + 1:i - 1].strip()
-            else:
-                entry_content = content[open_brace + 1:i - 1].strip()
-
-        entries.append({
-            'type': entry_type.lower(),
-            'key': entry_key,
-            'content': entry_content,
-        })
-
-    return entries
-
-
-def write_bibtex(entries: List[dict], output_path: Path) -> None:
-    """Write entries to BibTeX file.
-
-    Each entry dict should have:
-    - 'type': Entry type (article, book, etc.)
-    - 'key': Citation key
-    - 'content': Entry content (fields and values)
-
-    Args:
-        entries: List of entry dictionaries
-        output_path: Path to output BibTeX file
-
-    Raises:
-        OSError: If file cannot be written
-        ValueError: If entry is missing required fields
-    """
-    lines = []
-
-    for entry in entries:
-        if 'type' not in entry or 'key' not in entry:
-            raise ValueError("Entry must have 'type' and 'key' fields")
-
-        entry_type = entry['type']
-        entry_key = entry['key']
-        content = entry.get('content', '')
-
-        # Format: @type{key,
-        # content
-        # }
-        lines.append(f'@{entry_type}{{{entry_key},')
-        lines.append(content)
-
-        # Ensure proper formatting
-        if not content.endswith('}'):
-            lines.append('}')
-        else:
-            # Content already ends with closing brace
-            pass
-
-        lines.append('')  # Empty line between entries
-
-    output_path.write_text('\n'.join(lines), encoding='utf-8')
 
 
 def compile_latex(tex_path: Path) -> Optional[Path]:
