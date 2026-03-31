@@ -1,6 +1,6 @@
 {
   "name": "bibliography-skills",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "Bibliography extraction and sentence-aware citation search for Claude Code",
   "author": "fangrh",
   "license": "MIT",
@@ -22,10 +22,13 @@
   "claude": {
     "commands": [
       "bib-extractor",
-      "bib-searcher"
+      "bib-searcher",
+      "bib-sync",
+      "bib-manage"
     ],
     "dependencies": [
-      "requests"
+      "requests",
+      "papis"
     ]
   },
   "install": {
