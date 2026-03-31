@@ -7,11 +7,13 @@ This module provides functions for:
 - Detecting duplicate bibliography entries
 - Reading and writing BibTeX files
 - Syncing cited references from papis.bib to main.bib
+- Migrating existing BibTeX files to papis library
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set
 
@@ -454,3 +456,71 @@ def sync_to_main(papis_bib: Path, main_bib: Path, cited_keys: Set[str]) -> None:
 
     # Write the filtered entries to main.bib
     write_bibtex(cited_entries, main_bib)
+
+
+def migrate_bib(source_bib: Path, papis_lib_dir: Path) -> Path:
+    """Migrate a BibTeX file to a papis library.
+
+    This function imports entries from a source BibTeX file into a papis
+    library using the papis command-line tool, then exports all entries to
+    papis.bib in the library directory.
+
+    The process:
+    1. Validates that the source BibTeX file exists
+    2. Creates the papis library directory if it doesn't exist
+    3. Runs 'papis add --from bibtex' to import entries
+    4. Runs 'papis export --format bibtex' to create papis.bib
+
+    Args:
+        source_bib: Path to the source BibTeX file to migrate
+        papis_lib_dir: Path to the papis library directory
+
+    Returns:
+        Path to the created papis.bib file (papis_lib_dir / 'papis.bib')
+
+    Raises:
+        FileNotFoundError: If source_bib does not exist
+        subprocess.CalledProcessError: If papis commands fail
+        OSError: If file operations fail
+
+    Examples:
+        >>> papis_bib = migrate_bib(Path('my_references.bib'), Path('~/.papis/library'))
+        >>> print(f"Migrated to: {papis_bib}")
+    """
+    # Check if source BibTeX file exists
+    if not source_bib.exists():
+        raise FileNotFoundError(f"Source BibTeX file not found: {source_bib}")
+
+    # Create papis library directory if it doesn't exist
+    papis_lib_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the papis add command
+    # Use -l flag to specify library directory
+    add_cmd = [
+        'papis',
+        'add',
+        '--from', 'bibtex',
+        '-l', str(papis_lib_dir),
+        str(source_bib)
+    ]
+
+    # Run papis add to import entries
+    subprocess.run(add_cmd, check=True, capture_output=True, text=True)
+
+    # Build the papis export command
+    export_cmd = [
+        'papis',
+        'export',
+        '--format', 'bibtex',
+        '-l', str(papis_lib_dir),
+        '--all',
+    ]
+
+    # Run papis export to create papis.bib
+    result = subprocess.run(export_cmd, check=True, capture_output=True, text=True)
+
+    # Write exported content to papis.bib
+    papis_bib = papis_lib_dir / 'papis.bib'
+    papis_bib.write_text(result.stdout, encoding='utf-8')
+
+    return papis_bib

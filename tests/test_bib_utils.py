@@ -1,7 +1,9 @@
 """Tests for bib_utils.py - Bibliography utility functions."""
 
+import subprocess
 import pytest
 from pathlib import Path
+from unittest.mock import Mock, patch, MagicMock
 import sys
 
 # Add scripts directory to path
@@ -1085,3 +1087,202 @@ class TestWriteBibtex:
         assert '@article{paper1,' in content
         # Should still add a closing brace
         assert content.strip().endswith('}')
+
+
+class TestMigrateBib:
+    """Tests for migrate_bib function."""
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_success(self, mock_run, tmp_path):
+        """Test successful migration of BibTeX file."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        # Create source BibTeX file
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        # Mock subprocess.run for both add and export commands
+        mock_run.return_value = MagicMock(
+            stdout='@article{test2023,\n    title = {Test}\n}',
+            stderr=''
+        )
+
+        result = bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+        # Check that papis lib directory was created
+        assert papis_lib_dir.exists()
+
+        # Check that subprocess.run was called twice (add and export)
+        assert mock_run.call_count == 2
+
+        # Check the add command
+        add_call = mock_run.call_args_list[0]
+        add_cmd = add_call[0][0]
+        assert 'papis' in add_cmd
+        assert 'add' in add_cmd
+        assert '--from' in add_cmd
+        assert 'bibtex' in add_cmd
+        assert '-l' in add_cmd
+        assert str(papis_lib_dir) in add_cmd
+        assert str(source_bib) in add_cmd
+
+        # Check the export command
+        export_call = mock_run.call_args_list[1]
+        export_cmd = export_call[0][0]
+        assert 'papis' in export_cmd
+        assert 'export' in export_cmd
+        assert '--format' in export_cmd
+        assert 'bibtex' in export_cmd
+        assert '-l' in export_cmd
+        assert str(papis_lib_dir) in export_cmd
+
+        # Check that papis.bib was created
+        assert result == papis_lib_dir / 'papis.bib'
+        assert result.exists()
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_nonexistent_source(self, mock_run, tmp_path):
+        """Test migration with non-existent source file."""
+        source_bib = tmp_path / 'nonexistent.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        with pytest.raises(FileNotFoundError, match="Source BibTeX file not found"):
+            bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+        # subprocess.run should not be called
+        mock_run.assert_not_called()
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_creates_library_dir(self, mock_run, tmp_path):
+        """Test that migration creates library directory."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'new_lib' / 'nested' / 'path'
+
+        # Create source BibTeX file
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        mock_run.return_value = MagicMock(
+            stdout='@article{test2023,\n    title = {Test}\n}',
+            stderr=''
+        )
+
+        bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+        # Check that nested directories were created
+        assert papis_lib_dir.exists()
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_papis_add_failure(self, mock_run, tmp_path):
+        """Test migration when papis add command fails."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        # Mock papis add failure
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1, cmd='papis add', stderr='Error importing'
+        )
+
+        with pytest.raises(subprocess.CalledProcessError):
+            bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_papis_export_failure(self, mock_run, tmp_path):
+        """Test migration when papis export command fails."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        # Mock papis export failure (first call succeeds, second fails)
+        mock_run.side_effect = [
+            MagicMock(stdout='', stderr=''),  # add succeeds
+            subprocess.CalledProcessError(returncode=1, cmd='papis export', stderr='Error exporting')
+        ]
+
+        with pytest.raises(subprocess.CalledProcessError):
+            bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_writes_output(self, mock_run, tmp_path):
+        """Test that migration writes exported content to papis.bib."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        exported_bibtex = '''@article{test2023,
+    title = {Test},
+    author = {Author},
+    year = {2023}
+}
+'''
+
+        mock_run.return_value = MagicMock(
+            stdout=exported_bibtex,
+            stderr=''
+        )
+
+        result = bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+        # Check that content was written correctly
+        content = result.read_text(encoding='utf-8')
+        assert content == exported_bibtex
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_existing_library_dir(self, mock_run, tmp_path):
+        """Test migration with existing library directory."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        # Create source and existing library directory
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+        papis_lib_dir.mkdir()
+
+        mock_run.return_value = MagicMock(
+            stdout='@article{test2023,\n    title = {Test}\n}',
+            stderr=''
+        )
+
+        # Should not raise an error
+        result = bib_utils.migrate_bib(source_bib, papis_lib_dir)
+        assert result == papis_lib_dir / 'papis.bib'
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_check_true(self, mock_run, tmp_path):
+        """Test that subprocess.run is called with check=True."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        mock_run.return_value = MagicMock(
+            stdout='@article{test2023,\n    title = {Test}\n}',
+            stderr=''
+        )
+
+        bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+        # Verify check=True is passed to subprocess.run
+        for call in mock_run.call_args_list:
+            assert call[1].get('check') is True
+
+    @patch('bib_utils.subprocess.run')
+    def test_migrate_bib_capture_output(self, mock_run, tmp_path):
+        """Test that subprocess.run is called with capture_output=True."""
+        source_bib = tmp_path / 'source.bib'
+        papis_lib_dir = tmp_path / 'papis_lib'
+
+        source_bib.write_text('@article{test2023,\n    title = {Test}\n}', encoding='utf-8')
+
+        mock_run.return_value = MagicMock(
+            stdout='@article{test2023,\n    title = {Test}\n}',
+            stderr=''
+        )
+
+        bib_utils.migrate_bib(source_bib, papis_lib_dir)
+
+        # Verify capture_output=True is passed to subprocess.run
+        for call in mock_run.call_args_list:
+            assert call[1].get('capture_output') is True
