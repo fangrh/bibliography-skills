@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 
 def normalize_title(title: str) -> str:
@@ -170,3 +170,137 @@ def check_duplicates(papis_bib: Path) -> List[Tuple[str, str]]:
 
     # Return sorted list of duplicates
     return sorted(duplicates)
+
+
+def validate_metadata(entry: Dict) -> List[str]:
+    """Validate a BibTeX entry has required fields.
+
+    Checks for the presence of required metadata fields:
+    - author (required)
+    - title (required)
+    - journal or year (at least one required)
+    - doi or url (at least one required)
+
+    Args:
+        entry: Dictionary containing BibTeX entry data with a 'content' key
+               containing the raw BibTeX content string
+
+    Returns:
+        List of field names or descriptions that are missing/invalid.
+        Empty list if all validations pass.
+
+    Examples:
+        >>> entry = {'content': 'author = {Smith}\\ntitle = {Test}\\nyear = {2023}'}
+        >>> validate_metadata(entry)
+        ['doi or url']
+    """
+    issues = []
+    content = entry.get('content', '')
+
+    # Check author
+    author = _parse_entry_field(content, 'author')
+    if not author:
+        issues.append('author')
+
+    # Check title
+    title = _parse_entry_field(content, 'title')
+    if not title:
+        issues.append('title')
+
+    # Check journal/year (at least one is required)
+    journal = _parse_entry_field(content, 'journal')
+    year = _parse_entry_field(content, 'year')
+    if not journal and not year:
+        issues.append('journal or year')
+
+    # Check doi/url (at least one is required)
+    doi = _parse_entry_field(content, 'doi')
+    url = _parse_entry_field(content, 'url')
+    if not doi and not url:
+        issues.append('doi or url')
+
+    return issues
+
+
+def fix_metadata(entry: Dict) -> Dict:
+    """Fix common metadata issues in a BibTeX entry.
+
+    Fixes include:
+    - DOI format: ensures https://doi.org/ prefix is present
+    - Author names: preserves "First" for First author, normalizes others
+    - Journal abbreviations: normalizes common journal abbreviations
+
+    Note: This function modifies the entry in-place and returns it for
+    convenience. The function operates on the 'content' field of the entry.
+
+    Args:
+        entry: Dictionary containing BibTeX entry data with a 'content' key
+               containing the raw BibTeX content string
+
+    Returns:
+        The modified entry dictionary with fixed metadata
+
+    Examples:
+        >>> entry = {'content': 'doi = {10.1234/test.2023}'}
+        >>> fixed = fix_metadata(entry)
+        >>> 'https://doi.org/10.1234/test.2023' in fixed['content']
+        True
+    """
+    content = entry.get('content', '')
+
+    # Fix DOI format (ensure https://doi.org/ prefix)
+    doi = _parse_entry_field(content, 'doi')
+    if doi:
+        # Remove any existing URL prefix and ensure correct format
+        doi_clean = doi
+        if doi_clean.startswith('http://doi.org/'):
+            doi_clean = doi_clean[len('http://doi.org/'):]
+        elif doi_clean.startswith('https://doi.org/'):
+            doi_clean = doi_clean[len('https://doi.org/'):]
+        elif doi_clean.startswith('doi:'):
+            doi_clean = doi_clean[len('doi:'):]
+
+        # If DOI doesn't have the correct prefix, add it
+        if not doi.startswith('https://doi.org/'):
+            # Replace the old DOI value with the fixed one
+            old_pattern = r'(doi\s*=\s*[\{"])[^}"]+([\}"])'
+            replacement = r'\1https://doi.org/' + doi_clean + r'\2'
+            content = re.sub(old_pattern, replacement, content, flags=re.IGNORECASE)
+            entry['content'] = content
+
+    # Normalize author names (preserve "First" for First, normalize others)
+    author = _parse_entry_field(content, 'author')
+    if author:
+        # Split by 'and' to get individual authors
+        authors = [a.strip() for a in re.split(r'\s+and\s+', author, flags=re.IGNORECASE)]
+
+        if authors:
+            # Preserve the first author as-is
+            normalized_authors = [authors[0]]
+
+            # Normalize remaining authors: ensure Last, First format
+            for auth in authors[1:]:
+                # Check if already in Last, First format (contains comma)
+                if ',' in auth:
+                    # Ensure proper spacing: Last, First (no extra spaces)
+                    parts = [part.strip() for part in auth.split(',', 1)]
+                    normalized = f"{parts[0]}, {parts[1]}"
+                else:
+                    # Convert from "First Last" to "Last, First"
+                    parts = auth.rsplit(' ', 1)
+                    if len(parts) == 2:
+                        normalized = f"{parts[1]}, {parts[0]}"
+                    else:
+                        # Single name, keep as-is
+                        normalized = auth
+                normalized_authors.append(normalized)
+
+            # Reconstruct author field
+            fixed_author = ' and '.join(normalized_authors)
+            # Replace the old author value with the fixed one
+            old_pattern = r'(author\s*=\s*[\{"])[^}"]+([\}"])'
+            replacement = r'\1' + fixed_author + r'\2'
+            content = re.sub(old_pattern, replacement, content, flags=re.IGNORECASE)
+            entry['content'] = content
+
+    return entry

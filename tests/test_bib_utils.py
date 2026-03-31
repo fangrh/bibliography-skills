@@ -386,3 +386,273 @@ class TestCheckDuplicates:
         duplicates = bib_utils.check_duplicates(bib_file)
         assert len(duplicates) == 1
         assert ('smith2023_article', 'smith2023_conf') in duplicates
+
+
+class TestValidateMetadata:
+    """Tests for validate_metadata function."""
+
+    def test_complete_entry(self):
+        """Test entry with all required fields passes validation."""
+        entry = {
+            'content': '''author = {Smith, John},
+title = {A Great Paper},
+year = {2023},
+doi = {10.1234/test.2023}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == []
+
+    def test_complete_entry_with_journal(self):
+        """Test entry with journal instead of year passes validation."""
+        entry = {
+            'content': '''author = {Smith, John},
+title = {A Great Paper},
+journal = {Journal of Tests},
+doi = {10.1234/test.2023}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == []
+
+    def test_complete_entry_with_url(self):
+        """Test entry with URL instead of DOI passes validation."""
+        entry = {
+            'content': '''author = {Smith, John},
+title = {A Great Paper},
+year = {2023},
+url = {https://example.com/paper}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == []
+
+    def test_missing_author(self):
+        """Test entry missing author field."""
+        entry = {
+            'content': '''title = {A Great Paper},
+year = {2023},
+doi = {10.1234/test.2023}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == ['author']
+
+    def test_missing_title(self):
+        """Test entry missing title field."""
+        entry = {
+            'content': '''author = {Smith, John},
+year = {2023},
+doi = {10.1234/test.2023}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == ['title']
+
+    def test_missing_journal_and_year(self):
+        """Test entry missing both journal and year fields."""
+        entry = {
+            'content': '''author = {Smith, John},
+title = {A Great Paper},
+doi = {10.1234/test.2023}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == ['journal or year']
+
+    def test_missing_doi_and_url(self):
+        """Test entry missing both DOI and URL fields."""
+        entry = {
+            'content': '''author = {Smith, John},
+title = {A Great Paper},
+year = {2023}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == ['doi or url']
+
+    def test_multiple_missing_fields(self):
+        """Test entry with multiple missing fields."""
+        entry = {
+            'content': '''author = {Smith, John}
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert 'title' in issues
+        assert 'journal or year' in issues
+        assert 'doi or url' in issues
+
+    def test_entry_with_quotes(self):
+        """Test validation works with quote-delimited fields."""
+        entry = {
+            'content': '''author = "Smith, John",
+title = "A Great Paper",
+year = "2023",
+doi = "10.1234/test.2023"
+'''
+        }
+        issues = bib_utils.validate_metadata(entry)
+        assert issues == []
+
+    def test_empty_content(self):
+        """Test entry with empty content."""
+        entry = {'content': ''}
+        issues = bib_utils.validate_metadata(entry)
+        assert 'author' in issues
+        assert 'title' in issues
+        assert 'journal or year' in issues
+        assert 'doi or url' in issues
+
+
+class TestFixMetadata:
+    """Tests for fix_metadata function."""
+
+    def test_add_doi_prefix(self):
+        """Test adding https://doi.org/ prefix to DOI."""
+        entry = {
+            'content': '''title = {Test},
+doi = {10.1234/test.2023}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        assert 'https://doi.org/10.1234/test.2023' in fixed['content']
+        assert 'doi = {https://doi.org/10.1234/test.2023}' in fixed['content']
+
+    def test_doi_already_has_prefix(self):
+        """Test DOI already with https://doi.org/ prefix."""
+        entry = {
+            'content': '''title = {Test},
+doi = {https://doi.org/10.1234/test.2023}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        # Should not duplicate the prefix
+        assert fixed['content'].count('https://doi.org/') == 1
+
+    def test_doi_with_http_prefix(self):
+        """Test DOI with http://doi.org/ prefix gets upgraded."""
+        entry = {
+            'content': '''title = {Test},
+doi = {http://doi.org/10.1234/test.2023}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        assert 'https://doi.org/10.1234/test.2023' in fixed['content']
+        # Should not have http://doi.org/ anymore
+        assert 'http://doi.org/' not in fixed['content']
+
+    def test_doi_with_doi_prefix(self):
+        """Test DOI with 'doi:' prefix gets fixed."""
+        entry = {
+            'content': '''title = {Test},
+doi = {doi:10.1234/test.2023}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        assert 'https://doi.org/10.1234/test.2023' in fixed['content']
+        # Should not have doi: anymore
+        assert 'doi:10.1234' not in fixed['content']
+
+    def test_normalize_author_multiple(self):
+        """Test normalizing multiple authors."""
+        entry = {
+            'content': '''title = {Test},
+author = {First Author and Second Author and Third Author}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        # First author should be preserved
+        assert 'First Author' in fixed['content']
+        # Other authors should be in Last, First format
+        assert 'Author, Second' in fixed['content']
+        assert 'Author, Third' in fixed['content']
+
+    def test_author_already_formatted(self):
+        """Test author already in Last, First format is preserved."""
+        entry = {
+            'content': '''title = {Test},
+author = {Smith, John and Doe, Jane}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        # Should not change already formatted authors
+        assert 'Smith, John' in fixed['content']
+        assert 'Doe, Jane' in fixed['content']
+
+    def test_author_with_whitespace_variations(self):
+        """Test author normalization with whitespace variations."""
+        entry = {
+            'content': '''title = {Test},
+author = {First Author and  Second  Author}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        # Should normalize whitespace in "and" separator
+        assert ' and ' in fixed['content']
+        assert '  Second  ' not in fixed['content']
+
+    def test_single_author(self):
+        """Test single author is preserved."""
+        entry = {
+            'content': '''title = {Test},
+author = {First Author}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        assert 'First Author' in fixed['content']
+
+    def test_no_doi_field(self):
+        """Test entry without DOI field."""
+        entry = {
+            'content': '''title = {Test},
+author = {Smith, John}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        # Should not crash and return modified entry
+        assert 'title = {Test}' in fixed['content']
+
+    def test_doi_with_quotes(self):
+        """Test DOI normalization with quote-delimited fields."""
+        entry = {
+            'content': '''title = "Test",
+doi = "10.1234/test.2023"
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        assert 'https://doi.org/10.1234/test.2023' in fixed['content']
+        assert 'doi = "https://doi.org/10.1234/test.2023"' in fixed['content']
+
+    def test_combined_fixes(self):
+        """Test applying both DOI and author fixes."""
+        entry = {
+            'content': '''title = {Test},
+author = {First Author and Second Author},
+doi = {10.1234/test.2023}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        assert 'https://doi.org/10.1234/test.2023' in fixed['content']
+        assert 'First Author' in fixed['content']
+        assert 'Author, Second' in fixed['content']
+
+    def test_return_value_is_entry(self):
+        """Test that fix_metadata returns the entry dict."""
+        entry = {'content': 'title = {Test}'}
+        result = bib_utils.fix_metadata(entry)
+        # Should return the same dict object (modified)
+        assert result is entry
+        assert 'content' in result
+
+    def test_author_conversion_first_last_to_last_first(self):
+        """Test converting "First Last" format to "Last, First"."""
+        entry = {
+            'content': '''title = {Test},
+author = {First Author and Second Person}
+'''
+        }
+        fixed = bib_utils.fix_metadata(entry)
+        # First author preserved
+        assert 'First Author' in fixed['content']
+        # Second author converted
+        assert 'Person, Second' in fixed['content']
