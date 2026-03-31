@@ -42,11 +42,12 @@ git commit --allow-empty -m "feat: create papis-integration branch"
 **Files:**
 - Modify: `requirements.txt`
 
-- [ ] **Step 1: Add papis dependency**
+- [ ] **Step 1: Add papis and pytest dependencies**
 
 ```python
 # Append to requirements.txt
 papis>=0.14.0
+pytest-cov>=4.0.0
 ```
 
 - [ ] **Step 2: Install dependencies for testing**
@@ -386,37 +387,30 @@ git commit -m "feat: add LaTeX compilation to bib_sync.py"
 
 ---
 
-### Task 7: Implement bib_sync.py - BibTeX I/O
+### Task 7: Add BibTeX Utility Functions
 
 **Files:**
 - Modify: `scripts/bib_sync.py`
 
-- [ ] **Step 1: Write failing test for BibTeX reading**
+- [ ] **Step 1: Write failing test for BibTeX parsing**
 
 ```python
 # tests/test_bib_sync.py
-import tempfile
-from pathlib import Path
-
-def test_read_bibtex():
-    """Test BibTeX file reading."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        bib_file = Path(tmpdir) / "test.bib"
-        bib_file.write_text("@article{key1, author={Test}}")
-        result = read_bibtex(bib_file)
-        assert len(result) == 1
-        assert result[0]['key'] == 'key1'
-```
+def test_parse_bibtex_field():
+    """Test BibTeX field parsing."""
+    content = "@article{key1, author={Test}, title={Test Paper}}"
+    result = parse_bibtex_field(content, 'author')
+    assert result == 'Test'
 
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-pytest tests/test_bib_sync.py::test_read_bibtex -v
+pytest tests/test_bib_sync.py::test_parse_bibtex_field -v
 ```
 
 Expected: FAIL with "function not defined"
 
-- [ ] **Step 3: Write BibTeX I/O functions**
+- [ ] **Step 3: Write BibTeX parsing utility functions**
 
 ```python
 # scripts/bib_sync.py (add to existing file)
@@ -425,21 +419,73 @@ def parse_bibtex_field(content: str, field: str, start: str = '{') -> Optional[s
     pattern = f'{field}\\s*=\\s*([{{^}}]*|[^{{}}\\n]*)'
     match = re.search(pattern, content, re.MULTILINE)
     if match:
-        # Remove braces and whitespace
         value = match.group(1).strip()
         value = value.replace('{', '').replace('}', '').strip()
-        # Remove multiple braces
         value = re.sub(r'^{{+', '', value)
         value = re.sub(r'}}+$', '', value)
         return value
     return None
+```
 
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+pytest tests/test_bib_sync.py::test_parse_bibtex_field -v
+```
+
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/bib_sync.py tests/test_bib_sync.py
+git commit -m "feat: add BibTeX parsing utility to bib_sync.py"
+```
+
+---
+
+### Task 8: Implement bib_sync.py - BibTeX I/O
+
+**Files:**
+- Modify: `scripts/bib_sync.py`
+
+- [ ] **Step 1: Write failing test for BibTeX I/O**
+
+```python
+# tests/test_bib_sync.py
+import tempfile
+from pathlib import Path
+
+def test_read_write_bibtex():
+    """Test BibTeX file I/O."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bib_file = Path(tmpdir) / "test.bib"
+        entries = [{'type': 'article', 'key': 'key1', 'content': 'author={Test}'}]
+        write_bibtex(entries, bib_file)
+        result = read_bibtex(bib_file)
+        assert len(result) == 1
+        assert result[0]['key'] == 'key1'
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+pytest tests/test_bib_sync.py::test_read_write_bibtex -v
+```
+
+Expected: FAIL with "functions not defined"
+
+- [ ] **Step 3: Write BibTeX I/O functions**
+
+```python
+# scripts/bib_sync.py (add to existing file)
 def read_bibtex(bib_path: Path) -> List[dict]:
     """Read BibTeX file and return list of entries."""
-    content = read_bbl_file(bib_path)
+    if not bib_path.exists():
+        return []
+    content = bib_path.read_text(encoding='utf-8')
     entries = []
 
-    # Split by @entry
     entry_pattern = r'@(\w+)\s*\{([^@]+)\}'
     for entry_type, entry_content in re.findall(entry_pattern, content, re.DOTALL):
         key = entry_content.split(',', 1)[0].strip()
@@ -458,7 +504,7 @@ def write_bibtex(entries: List[dict], output_path: Path) -> None:
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-pytest tests/test_bib_sync.py::test_read_bibtex -v
+pytest tests/test_bib_sync.py::test_read_write_bibtex -v
 ```
 
 Expected: PASS
@@ -467,12 +513,71 @@ Expected: PASS
 
 ```bash
 git add scripts/bib_sync.py tests/test_bib_sync.py
-git commit -m "feat: add BibTeX I/O functions to bib_sync.py"
+git commit -m "feat: add BibTeX I/O to bib_sync.py"
 ```
 
 ---
 
-### Task 8: Implement bib_sync.py - Main Sync Function
+### Task 9: Implement bib_sync.py - Papis Initialization
+
+**Files:**
+- Modify: `scripts/bib_sync.py`
+
+- [ ] **Step 1: Write failing test for papis initialization**
+
+```python
+# tests/test_bib_sync.py
+def test_ensure_papis_initialized():
+    """Test papis library initialization."""
+    from pathlib import Path
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from bib_sync import ensure_papis_initialized
+        result = ensure_papis_initialized(Path(tmpdir))
+        assert (Path(tmpdir) / '.papis').exists()
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+pytest tests/test_bib_sync.py::test_ensure_papis_initialized -v
+```
+
+Expected: FAIL with "function not defined"
+
+- [ ] **Step 3: Write papis initialization function**
+
+```python
+# scripts/bib_sync.py (add to existing file)
+def ensure_papis_initialized(lib_dir: Path = Path('.')) -> None:
+    """
+    Ensure papis library exists in specified directory.
+    Creates minimal .papis config if needed.
+    """
+    papis_dir = lib_dir / '.papis'
+    if not papis_dir.exists():
+        papis_dir.mkdir()
+        print(f"Initialized papis library in {lib_dir}")
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+pytest tests/test_bib_sync.py::test_ensure_papis_initialized -v
+```
+
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/bib_sync.py tests/test_bib_sync.py
+git commit -m "feat: add papis initialization to bib_sync.py"
+```
+
+---
+
+### Task 10: Implement bib_sync.py - Main Sync Function
 
 **Files:**
 - Modify: `scripts/bib_sync.py`
@@ -860,7 +965,7 @@ def sync_to_main(papis_bib: Path, main_bib: Path, cited_keys: Set[str]) -> None:
     Only copies cited references to keep main.bib clean.
     """
     # Read papis entries
-    papis_entries = read_bibtex(papis_bib_path)
+    papis_entries = read_bibtex(papis_bib)
 
     # Filter for cited keys
     cited_entries = [e for e in papis_entries if e['key'] in cited_keys]
@@ -951,11 +1056,11 @@ def migrate_bib(source_bib: Path, papis_lib_dir: Path) -> Path:
     cmd = ['papis', '-l', str(papis_lib_dir), 'add', '--from', 'bibtex', str(source_bib)]
     subprocess.run(cmd, check=True)
 
-    # Export to papis.bib
+    # Export to papis.bib (using proper Python I/O instead of shell redirection)
     papis_bib_path = papis_lib_dir / "papis.bib"
-    export_cmd = ['papis', '-l', str(papis_lib_dir), 'export',
-                '--format', 'bibtex', '>', str(papis_bib_path)]
-    subprocess.run(' '.join(export_cmd), shell=True, check=True)
+    export_cmd = ['papis', '-l', str(papis_lib_dir), 'export', '--format', 'bibtex']
+    with open(papis_bib_path, 'w', encoding='utf-8') as f:
+        subprocess.run(export_cmd, stdout=f, check=True)
 
     return papis_bib_path
 ```
@@ -982,6 +1087,32 @@ git commit -m "feat: add migration function to bib_utils.py"
 **Files:**
 - Create: `claude/commands/bib-manage.md`
 - Create: `scripts/bib_manage.py`
+
+- [ ] **Step 1: Write bib-manage command description**
+
+```markdown
+# /bib-manage - Manage bibliography database
+```
+
+- [ ] **Step 2: Write bib-manage Python script**
+
+```python
+# scripts/bib_manage.py
+import sys
+import argparse
+from pathlib import Path
+
+# Import utilities from bib_utils
+sys.path.insert(0, str(Path(__file__).parent))
+from bib_utils import (
+    check_duplicates,
+    sync_to_main,
+    validate_metadata,
+    fix_metadata,
+    migrate_bib
+)
+
+def main():
 
 - [ ] **Step 1: Write bib-manage command description**
 
@@ -1122,7 +1253,43 @@ git commit -m "feat: add bib-manage command"
 
 ---
 
-### Task 14: Create bib-sync Command File
+### Task 14: Add Tests for bib-manage.py
+
+**Files:**
+- Modify: `tests/test_bib_utils.py`
+
+- [ ] **Step 1: Write failing test for bib-manage CLI**
+
+```python
+# tests/test_bib_utils.py
+def test_bib_manage_check_duplicates_cli():
+    """Test bib-manage check-duplicates CLI action."""
+    from bib_manage import main
+    import sys
+    from io import StringIO
+    sys.argv = ['bib-manage', 'check-duplicates', '--bib', 'test.bib']
+    main()
+    # Verify output format
+```
+
+- [ ] **Step 2: Run test to verify it works**
+
+```bash
+pytest tests/test_bib_utils.py::test_bib_manage_check_duplicates_cli -v
+```
+
+Expected: PASS
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/test_bib_utils.py
+git commit -m "test: add bib-manage CLI tests"
+```
+
+---
+
+### Task 16: Create bib-sync Command File
 
 **Files:**
 - Create: `claude/commands/bib-sync.md`
@@ -1298,7 +1465,7 @@ git commit -m "feat: update manifest to version 2.0.0"
 
 ---
 
-### Task 17: Update Codex Skills
+### Task 18: Update Codex Skills
 
 **Files:**
 - Modify: `skills/bib-extractor/SKILL.md`
@@ -1377,7 +1544,7 @@ git commit -m "feat: update Codex skills for papis integration"
 
 ---
 
-### Task 18: Create bibnotes-config.yaml Example
+### Task 19: Create bibnotes-config.yaml Example
 
 **Files:**
 - Create: `bibnotes-config.yaml.example`
@@ -1411,7 +1578,7 @@ git commit -m "feat: add bibnotes-config.yaml example"
 
 ---
 
-### Task 19: Run Full Test Suite
+### Task 20: Run Full Test Suite
 
 **Files:**
 - Test: All implemented modules
@@ -1439,7 +1606,7 @@ git commit -m "test: full test suite passing"
 
 ---
 
-### Task 20: Update Documentation
+### Task 21: Update Documentation
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -1631,7 +1798,7 @@ git commit -m "docs: update documentation for v2.0.0"
 
 ---
 
-### Task 21: Final Verification and Merge Preparation
+### Task 22: Final Verification and Merge Preparation
 
 **Files:**
 - All project files
@@ -1679,26 +1846,29 @@ gh pr create --title "feat: Papis integration for bibliography management" --bod
 
 ## Summary
 
-This plan implements the papis integration in 21 bite-sized tasks:
+This plan implements the papis integration in 22 bite-sized tasks:
 
 1. Create new feature branch
-2. Update dependencies (add papis)
+2. Update dependencies (add papis and pytest-cov)
 3. Replace bib_extractor.py with papis CLI wrapper
 4. Implement bib_sync.py - BBL parsing
 5. Implement bib_sync.py - bibliography extraction
 6. Implement bib_sync.py - LaTeX compilation
-7. Implement bib_sync.py - BibTeX I/O
-8. Implement bib_sync.py - main sync function
-9. Create bib_utils.py - duplicate detection
-10. Create bib_utils.py - metadata validation
-11. Create bib_utils.py - sync to main
-12. Create bib_utils.py - migrate function
-13. Create bib-manage command
-14. Create bib-sync command
-15. Update bib-extractor command
-16. Update manifest.json
-17. Update Codex skills
-18. Create bibnotes-config.yaml example
-19. Run full test suite
-20. Update documentation
-21. Final verification and merge preparation
+7. Implement bib_sync.py - BibTeX parsing utility
+8. Implement bib_sync.py - BibTeX I/O
+9. Implement bib_sync.py - papis initialization
+10. Implement bib_sync.py - main sync function
+11. Create bib_utils.py - duplicate detection
+12. Create bib_utils.py - metadata validation
+13. Create bib_utils.py - sync to main
+14. Create bib_utils.py - migrate function
+15. Create bib-manage command
+16. Add tests for bib-manage.py
+17. Create bib-sync command
+18. Update bib-extractor command
+19. Update manifest.json
+20. Update Codex skills
+21. Create bibnotes-config.yaml example
+22. Run full test suite
+23. Update documentation
+24. Final verification and merge preparation
