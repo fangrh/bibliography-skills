@@ -1,6 +1,6 @@
 # /bib-extractor - Extract Bibliography from DOIs/URLs
 
-Extract bibliography entries from DOIs, URLs, PMIDs, and arXiv IDs. Automatically fetches metadata, formats as BibTeX, and appends to your local `.bib` file.
+Extract bibliography entries from DOIs, URLs, PMIDs, and arXiv IDs. Uses papis to fetch metadata, formats as BibTeX, and appends to your local `.bib` file. PDFs are automatically downloaded to the current directory.
 
 ## Usage
 
@@ -57,7 +57,6 @@ By default, journal names are abbreviated following standard conventions. Exampl
 | Applied Physics Letters | Appl. Phys. Lett. |
 
 Use `--full-journal-name` to keep the complete journal name instead.
-| `--full-journal-name` | Use full journal names instead of abbreviations | Optional |
 
 ## Examples
 
@@ -135,14 +134,18 @@ Generates properly formatted BibTeX entries with:
 ## Process
 
 1. Identify paper identifier type (DOI, PMID, arXiv ID, or URL)
-2. Query appropriate metadata source (CrossRef, PubMed, arXiv)
-3. Extract all metadata fields
+2. Delegate to papis CLI to query metadata sources (CrossRef, PubMed, arXiv)
+3. Extract all metadata fields from papis output
 4. Generate unique citation key
 5. Format as BibTeX entry
 6. Append to specified `.bib` file
+7. papis automatically downloads PDF to current directory
 
 ## Notes
 
-- Requires `requests` package: `pip install requests`
-- Rate limiting applies between batch requests
+- Requires `papis` package: `pip install papis` (and papis dependencies)
+- Uses papis CLI for metadata fetching and PDF download
+- PDFs are automatically downloaded to the current directory (not a centralized library)
+- Consider adding `*.pdf` to `.gitignore` if PDF downloads are not meant to be tracked
+- Rate limiting applies between batch requests (configured via `--delay`)
 - Checks for duplicate citation keys before writing
