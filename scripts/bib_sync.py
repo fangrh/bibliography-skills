@@ -10,6 +10,8 @@ This module provides functions for:
 """
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
@@ -320,3 +322,53 @@ def write_bibtex(entries: List[dict], output_path: Path) -> None:
         lines.append('')  # Empty line between entries
 
     output_path.write_text('\n'.join(lines), encoding='utf-8')
+
+
+def compile_latex(tex_path: Path) -> Optional[Path]:
+    """Compile a .tex file using available LaTeX compilers.
+
+    This function tries multiple LaTeX compilers in order (pdflatex, xelatex,
+    lualatex) and returns the path to the generated .bbl file if successful.
+
+    Args:
+        tex_path: Path to the .tex file to compile
+
+    Returns:
+        Path to the generated .bbl file if compilation succeeds,
+        None if all compilers fail
+    """
+    # Convert to Path object if string is passed
+    if not isinstance(tex_path, Path):
+        tex_path = Path(tex_path)
+
+    # List of LaTeX compilers to try, in order of preference
+    compilers = ['pdflatex', 'xelatex', 'lualatex']
+
+    for compiler in compilers:
+        # Check if compiler is available
+        if shutil.which(compiler) is None:
+            continue
+
+        try:
+            # Run the compiler with -interaction=nonstopmode to avoid blocking
+            # Capture output to suppress console noise
+            result = subprocess.run(
+                [compiler, '-interaction=nonstopmode', str(tex_path)],
+                capture_output=True,
+                text=True,
+                cwd=tex_path.parent
+            )
+
+            # Check if compilation was successful (return code 0)
+            if result.returncode == 0:
+                # Check if .bbl file exists
+                bbl_path = tex_path.with_suffix('.bbl')
+                if bbl_path.exists():
+                    return bbl_path
+
+        except (subprocess.SubprocessError, OSError):
+            # Try the next compiler if this one fails
+            continue
+
+    # All compilers failed
+    return None

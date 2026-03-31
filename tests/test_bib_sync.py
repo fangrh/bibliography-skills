@@ -712,5 +712,134 @@ Content here.
                 assert year == '2021'
 
 
+class TestCompileLatex:
+    """Tests for compile_latex function."""
+
+    def test_compile_latex_no_compilers_available(self, tmp_path, monkeypatch):
+        """Test compile_latex when no LaTeX compilers are available."""
+        tex_file = tmp_path / 'test.tex'
+        tex_file.write_text('\\documentclass{article}\\begin{document}\\end{document}')
+
+        # Mock shutil.which to return None for all compilers
+        def mock_which(cmd):
+            return None
+
+        monkeypatch.setattr('shutil.which', mock_which)
+
+        result = bib_sync.compile_latex(tex_file)
+        assert result is None
+
+    def test_compile_latex_with_string_path(self, tmp_path, monkeypatch):
+        """Test that compile_latex accepts string path."""
+        tex_file = tmp_path / 'test.tex'
+        tex_file.write_text('\\documentclass{article}\\begin{document}\\end{document}')
+
+        # Mock shutil.which and subprocess.run to simulate successful compilation
+        def mock_which(cmd):
+            return cmd  # All compilers "available"
+
+        def mock_run(args, capture_output=None, text=None, cwd=None):
+            # Simulate successful compilation
+            class MockResult:
+                returncode = 0
+                stdout = ''
+                stderr = ''
+            return MockResult()
+
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        # Create a .bbl file to simulate successful compilation
+        bbl_file = tmp_path / 'test.bbl'
+        bbl_file.write_text('\\bibitem{test}')
+
+        # Call with string path
+        result = bib_sync.compile_latex(str(tex_file))
+        assert result is not None
+        assert result == bbl_file
+
+    def test_compile_latex_returns_none_on_failure(self, tmp_path, monkeypatch):
+        """Test that compile_latex returns None when compilation fails."""
+        tex_file = tmp_path / 'test.tex'
+        tex_file.write_text('\\documentclass{article}\\begin{document}\\end{document}')
+
+        def mock_which(cmd):
+            return cmd  # All compilers "available"
+
+        def mock_run(args, capture_output=None, text=None, cwd=None):
+            # Simulate failed compilation
+            class MockResult:
+                returncode = 1  # Non-zero return code
+                stdout = ''
+                stderr = 'Error'
+            return MockResult()
+
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        result = bib_sync.compile_latex(tex_file)
+        assert result is None
+
+    def test_compile_latex_returns_none_if_bbl_missing(self, tmp_path, monkeypatch):
+        """Test that compile_latex returns None if .bbl file is not created."""
+        tex_file = tmp_path / 'test.tex'
+        tex_file.write_text('\\documentclass{article}\\begin{document}\\end{document}')
+
+        def mock_which(cmd):
+            return cmd  # All compilers "available"
+
+        def mock_run(args, capture_output=None, text=None, cwd=None):
+            # Simulate successful compilation but no .bbl created
+            class MockResult:
+                returncode = 0
+                stdout = ''
+                stderr = ''
+            return MockResult()
+
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        result = bib_sync.compile_latex(tex_file)
+        assert result is None  # No .bbl file exists
+
+    def test_compile_latex_falls_through_compilers(self, tmp_path, monkeypatch):
+        """Test that compile_latex tries multiple compilers in order."""
+        tex_file = tmp_path / 'test.tex'
+        tex_file.write_text('\\documentclass{article}\\begin{document}\\end{document}')
+
+        compilers_tried = []
+
+        def mock_which(cmd):
+            compilers_tried.append(cmd)
+            return cmd  # All compilers "available"
+
+        def mock_run(args, capture_output=None, text=None, cwd=None):
+            # Simulate successful compilation only on lualatex
+            if 'lualatex' in args[0]:
+                class MockResult:
+                    returncode = 0
+                    stdout = ''
+                    stderr = ''
+                # Create .bbl file
+                bbl_file = tmp_path / 'test.bbl'
+                bbl_file.write_text('\\bibitem{test}')
+                return MockResult()
+            else:
+                # pdflatex and xelatex fail
+                class MockResult:
+                    returncode = 1
+                    stdout = ''
+                    stderr = 'Error'
+                return MockResult()
+
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        result = bib_sync.compile_latex(tex_file)
+        # Should succeed with lualatex
+        assert result is not None
+        assert result == tex_file.with_suffix('.bbl')
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
