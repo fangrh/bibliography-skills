@@ -372,3 +372,382 @@ def compile_latex(tex_path: Path) -> Optional[Path]:
 
     # All compilers failed
     return None
+
+
+def extract_doi_from_bib(bib_path: Path, key: str) -> Optional[str]:
+    """Extract DOI from original .bib file for a given citation key.
+
+    This function reads a BibTeX file and extracts the DOI field for a specific
+    citation key. It handles various DOI field formats and positions.
+
+    Args:
+        bib_path: Path to the BibTeX file
+        key: Citation key to search for
+
+    Returns:
+        DOI string if found, None otherwise
+
+    Raises:
+        FileNotFoundError: If BibTeX file does not exist
+        OSError: If file cannot be read
+    """
+    content = bib_path.read_text(encoding='utf-8')
+
+    # Find the entry for the given key
+    # Pattern: @type{key, or @type (key,
+    entry_pattern = r'@(\w+)\s*(?:\{|\(\{?)\s*\s*' + re.escape(key) + r'\s*,'
+
+    entry_match = re.search(entry_pattern, content)
+    if not entry_match:
+        return None
+
+    # Find the opening brace of the entry
+    entry_start = entry_match.start()
+    open_brace = content.find('{', entry_start)
+    if open_brace == -1:
+        return None
+
+    # Find the closing brace of the entry
+    brace_depth = 1
+    i = open_brace + 1
+    while i < len(content) and brace_depth > 0:
+        if content[i] == '{':
+            brace_depth += 1
+        elif content[i] == '}':
+            brace_depth -= 1
+        i += 1
+
+    entry_content = content[open_brace + 1:i - 1]
+
+    # Extract DOI field
+    # Handle various formats: doi = {value}, doi = "value", DOI = {value}, etc.
+    doi_patterns = [
+        r'doi\s*=\s*\{([^}]+)\}',
+        r'doi\s*=\s*"([^"]+)"',
+        r'DOI\s*=\s*\{([^}]+)\}',
+        r'DOI\s*=\s*"([^"]+)"',
+    ]
+
+    for pattern in doi_patterns:
+        match = re.search(pattern, entry_content, re.IGNORECASE)
+        if match:
+            doi = match.group(1).strip()
+            # Clean up common DOI prefixes
+            if doi.startswith('http'):
+                # Extract DOI from URL
+                # Format: https://doi.org/10.xxxx/xxxxx
+                url_match = re.search(r'doi\.org/(10\.[^/\s]+/[^\s]+)', doi)
+                if url_match:
+                    return url_match.group(1)
+            elif doi.startswith('doi:'):
+                return doi[4:].strip()
+            return doi
+
+    return None
+
+
+def papis_add(doi: str) -> Optional[subprocess.CompletedProcess]:
+    """Call papis add command with specified DOI.
+
+    This function executes the papis add command to add a paper to the
+    papis library using its DOI.
+
+    Args:
+        doi: DOI string to add
+
+    Returns:
+        subprocess.CompletedProcess if papis is available, None otherwise
+    """
+    if shutil.which('papis') is None:
+        return None
+
+    try:
+        result = subprocess.run(
+            ['papis', 'add', '--from', 'doi', doi],
+            capture_output=True,
+            text=True
+        )
+        return result
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def update_entry_cite_order(bib_path: Path, key: str, order: str) -> None:
+    """Add cite_order field to BibTeX entry.
+
+    This function adds or updates the cite_order field for a specific entry
+    without rewriting the entire entry. It uses string manipulation to
+    preserve the original formatting.
+
+    Args:
+        bib_path: Path to the BibTeX file
+        key: Citation key to update
+        order: Citation order value to set
+
+    Raises:
+        FileNotFoundError: If BibTeX file does not exist
+        ValueError: If entry not found
+        OSError: If file cannot be read or written
+    """
+    content = bib_path.read_text(encoding='utf-8')
+
+    # Find the entry for the given key
+    entry_pattern = r'@(\w+)\s*(?:\{|\(\{?)\s*\s*' + re.escape(key) + r'\s*,'
+
+    entry_match = re.search(entry_pattern, content)
+    if not entry_match:
+        raise ValueError(f"Entry '{key}' not found in BibTeX file")
+
+    # Find the opening brace of the entry
+    entry_start = entry_match.start()
+    open_brace = content.find('{', entry_start)
+    if open_brace == -1:
+        raise ValueError(f"Invalid entry format for '{key}'")
+
+    # Find the closing brace of the entry
+    brace_depth = 1
+    i = open_brace + 1
+    while i < len(content) and brace_depth > 0:
+        if content[i] == '{':
+            brace_depth += 1
+        elif content[i] == '}':
+            brace_depth -= 1
+        i += 1
+
+    entry_close = i - 1
+
+    # Extract the entry content (after the opening brace, before closing brace)
+    entry_content = content[open_brace + 1:entry_close]
+
+    # Check if cite_order already exists
+    cite_order_pattern = r'cite_order\s*=\s*'
+    if re.search(cite_order_pattern, entry_content, re.IGNORECASE):
+        # Update existing cite_order - use the approach from remove_entry_field
+        # Find the cite_order field
+        field_match = re.search(cite_order_pattern, entry_content, re.IGNORECASE)
+        if field_match:
+            field_start = field_match.start()
+
+            # Find where the value ends
+            delimiter = content[open_brace + 1 + field_match.end():open_brace + 1 + field_match.end() + 1]
+            if delimiter == '{':
+                # Find balanced braces
+                value_start = open_brace + 1 + field_match.end() + 1
+                brace_depth = 1
+                i = value_start
+                while i < len(content) and brace_depth > 0:
+                    if content[i] == '{':
+                        brace_depth += 1
+                    elif content[i] == '}':
+                        brace_depth -= 1
+                    i += 1
+                value_end = i
+            else:
+                # Quote delimited
+                value_start = open_brace + 1 + field_match.end() + 1
+                value_end = content.find('"', value_start)
+                if value_end == -1:
+                    value_end = entry_close
+                else:
+                    value_end += 1
+
+            # Find trailing comma and whitespace
+            i = value_end
+            while i < len(content) and (content[i].isspace() or content[i] == ','):
+                i += 1
+
+            # Construct new content
+            before = content[:open_brace + 1 + field_start]
+            after = content[i:]
+            new_cite_order = f'cite_order = {{{order}}},'
+            new_content = before + new_cite_order + after
+            bib_path.write_text(new_content, encoding='utf-8')
+    else:
+        # Add new cite_order field - insert after the first complete field
+        # Find the comma after the key
+        key_end = content.find(',', open_brace)
+        if key_end == -1 or key_end > entry_close:
+            raise ValueError(f"Invalid entry format for '{key}'")
+
+        # Find a good insertion point
+        # Look for the first complete field (field_name = value,)
+        after_key = content[key_end + 1:entry_close]
+
+        # Pattern to match a complete field: word = {value} or word = "value"
+        # We need to handle balanced braces for brace-delimited values
+        insert_pos = key_end + 1  # Default: insert right after the key comma
+
+        # Try to find the first field and insert after it
+        field_start = re.search(r'\w+\s*=\s*[{"]', after_key)
+        if field_start:
+            start = field_start.start()
+            # Find the end of this field
+            delimiter = after_key[start + len(field_start.group(0)) - 1]
+            value_start = start + len(field_start.group(0))
+
+            if delimiter == '{':
+                # Find balanced braces
+                brace_depth = 1
+                i = value_start
+                while i < len(after_key) and brace_depth > 0:
+                    if after_key[i] == '{':
+                        brace_depth += 1
+                    elif after_key[i] == '}':
+                        brace_depth -= 1
+                    i += 1
+                field_end = i
+            else:
+                # Quote delimited
+                field_end = after_key.find('"', value_start)
+                if field_end == -1:
+                    field_end = len(after_key)
+                else:
+                    field_end += 1
+
+            # Find the trailing comma
+            i = field_end
+            while i < len(after_key) and (after_key[i].isspace() or after_key[i] == ','):
+                i += 1
+
+            if i < len(after_key):
+                insert_pos = key_end + 1 + i
+
+        # Insert cite_order
+        cite_order_line = f'\n  cite_order = {{{order}}},'
+        new_content = content[:insert_pos] + cite_order_line + content[insert_pos:]
+        bib_path.write_text(new_content, encoding='utf-8')
+
+
+def remove_entry_field(bib_path: Path, key: str, field: str) -> None:
+    """Remove a field from BibTeX entry.
+
+    This function removes a specific field from a BibTeX entry, handling
+    both brace and quote delimiters.
+
+    Args:
+        bib_path: Path to the BibTeX file
+        key: Citation key to update
+        field: Field name to remove
+
+    Raises:
+        FileNotFoundError: If BibTeX file does not exist
+        ValueError: If entry not found
+        OSError: If file cannot be read or written
+    """
+    content = bib_path.read_text(encoding='utf-8')
+
+    # Find the entry for the given key
+    entry_pattern = r'@(\w+)\s*(?:\{|\(\{?)\s*\s*' + re.escape(key) + r'\s*,'
+
+    entry_match = re.search(entry_pattern, content)
+    if not entry_match:
+        raise ValueError(f"Entry '{key}' not found in BibTeX file")
+
+    # Find the opening brace of the entry
+    entry_start = entry_match.start()
+    open_brace = content.find('{', entry_start)
+    if open_brace == -1:
+        raise ValueError(f"Invalid entry format for '{key}'")
+
+    # Find the closing brace of the entry
+    brace_depth = 1
+    i = open_brace + 1
+    while i < len(content) and brace_depth > 0:
+        if content[i] == '{':
+            brace_depth += 1
+        elif content[i] == '}':
+            brace_depth -= 1
+        i += 1
+
+    entry_close = i - 1
+
+    # Extract the entry content
+    entry_content = content[open_brace + 1:entry_close]
+
+    # Find and remove the field by parsing
+    # First, try to find the field pattern
+    # Pattern: field_name = {value} or field_name = "value"
+    field_start_pattern = field + r'\s*=\s*[{"]'
+    field_match = re.search(field_start_pattern, entry_content, re.IGNORECASE)
+
+    if field_match:
+        # Field found, need to remove it
+        field_start = field_match.start()
+
+        # Find where the value ends
+        delimiter = entry_content[field_match.end() - 1]  # { or "
+        value_start = field_match.end()
+
+        if delimiter == '{':
+            # Need to find balanced braces
+            brace_depth = 1
+            i = value_start
+            while i < len(entry_content) and brace_depth > 0:
+                if entry_content[i] == '{':
+                    brace_depth += 1
+                elif entry_content[i] == '}':
+                    brace_depth -= 1
+                i += 1
+            value_end = i
+        else:
+            # Quote delimited - find the closing quote
+            value_end = entry_content.find('"', value_start)
+            if value_end == -1:
+                value_end = len(entry_content)
+            else:
+                value_end += 1  # Include the closing quote
+
+        # Find the trailing comma and whitespace
+        i = value_end
+        while i < len(entry_content) and (entry_content[i].isspace() or entry_content[i] == ','):
+            i += 1
+
+        # Remove the field
+        new_entry_content = entry_content[:field_start] + entry_content[i:]
+    else:
+        # Field not found, return unchanged
+        new_entry_content = entry_content
+
+    # Clean up leading whitespace and comma
+    new_entry_content = re.sub(r'^\s*,?\s*', '', new_entry_content)
+
+    # Reconstruct the content
+    new_content = content[:open_brace + 1] + new_entry_content + content[entry_close:]
+
+    bib_path.write_text(new_content, encoding='utf-8')
+
+
+def sort_bibtex_by_cite_order(bib_path: Path) -> List[dict]:
+    """Sort BibTeX entries by cite_order field and rewrite file.
+
+    This function reads a BibTeX file, sorts entries by their cite_order field,
+    and writes the sorted entries back to the file. Entries without a
+    cite_order field are placed at the end.
+
+    Args:
+        bib_path: Path to the BibTeX file
+
+    Returns:
+        List of entry dictionaries in sorted order
+
+    Raises:
+        FileNotFoundError: If BibTeX file does not exist
+        OSError: If file cannot be read or written
+    """
+    entries = read_bibtex(bib_path)
+
+    # Extract cite_order from each entry
+    for entry in entries:
+        cite_order = parse_bibtex_field(entry['content'], 'cite_order')
+        entry['cite_order'] = cite_order
+
+    # Sort by cite_order, putting entries without cite_order at the end
+    sorted_entries = sorted(
+        entries,
+        key=lambda e: int(e.get('cite_order', '9999')) if e.get('cite_order') else 9999
+    )
+
+    # Write sorted entries back
+    write_bibtex(sorted_entries, bib_path)
+
+    return sorted_entries

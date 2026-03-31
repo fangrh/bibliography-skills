@@ -841,5 +841,569 @@ class TestCompileLatex:
         assert result == tex_file.with_suffix('.bbl')
 
 
+class TestExtractDoiFromBib:
+    """Tests for extract_doi_from_bib function."""
+
+    def test_extract_doi_with_braces(self, tmp_path):
+        """Test extracting DOI with brace delimiters."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  title = {Title},
+  doi = {10.1234/example.123},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        assert doi == '10.1234/example.123'
+
+    def test_extract_doi_with_quotes(self, tmp_path):
+        """Test extracting DOI with quote delimiters."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  doi = "10.1234/example.123",
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        assert doi == '10.1234/example.123'
+
+    def test_extract_doi_uppercase_field(self, tmp_path):
+        """Test extracting DOI with uppercase field name."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  DOI = {10.1234/example.123},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        assert doi == '10.1234/example.123'
+
+    def test_extract_doi_from_url(self, tmp_path):
+        """Test extracting DOI from URL format."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  doi = {https://doi.org/10.1234/example.123},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        assert doi == '10.1234/example.123'
+
+    def test_extract_doi_with_prefix(self, tmp_path):
+        """Test extracting DOI with doi: prefix."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  doi = {doi:10.1234/example.123},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        assert doi == '10.1234/example.123'
+
+    def test_extract_doi_not_found(self, tmp_path):
+        """Test when DOI field doesn't exist."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  title = {Title},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        assert doi is None
+
+    def test_extract_doi_key_not_found(self, tmp_path):
+        """Test when citation key doesn't exist."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  doi = {10.1234/example.123}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'nonexistent')
+        assert doi is None
+
+    def test_extract_doi_multiple_entries(self, tmp_path):
+        """Test extracting DOI from correct entry among multiple entries."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  doi = {10.1234/one}
+}
+
+@article{jones2020,
+  doi = {10.1234/two}
+}
+
+@article{brown2019,
+  doi = {10.1234/three}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        doi = bib_sync.extract_doi_from_bib(bib_file, 'jones2020')
+        assert doi == '10.1234/two'
+
+
+class TestPapisAdd:
+    """Tests for papis_add function."""
+
+    def test_papis_add_when_available(self, tmp_path, monkeypatch):
+        """Test papis_add when papis command is available."""
+        def mock_which(cmd):
+            if cmd == 'papis':
+                return cmd
+            return None
+
+        def mock_run(args, capture_output=None, text=None):
+            class MockResult:
+                returncode = 0
+                stdout = 'Added successfully'
+                stderr = ''
+            return MockResult()
+
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        result = bib_sync.papis_add('10.1234/example.123')
+        assert result is not None
+        assert result.returncode == 0
+
+    def test_papis_add_when_not_available(self, monkeypatch):
+        """Test papis_add when papis command is not available."""
+        def mock_which(cmd):
+            return None
+
+        monkeypatch.setattr('shutil.which', mock_which)
+
+        result = bib_sync.papis_add('10.1234/example.123')
+        assert result is None
+
+    def test_papis_add_on_error(self, monkeypatch):
+        """Test papis_add when command execution fails."""
+        def mock_which(cmd):
+            if cmd == 'papis':
+                return cmd
+            return None
+
+        def mock_run(args, capture_output=None, text=None):
+            raise OSError('Command not found')
+
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        result = bib_sync.papis_add('10.1234/example.123')
+        assert result is None
+
+
+class TestUpdateEntryCiteOrder:
+    """Tests for update_entry_cite_order function."""
+
+    def test_add_cite_order_to_entry(self, tmp_path):
+        """Test adding cite_order field to an entry."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  title = {Title},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.update_entry_cite_order(bib_file, 'smith2021', '1')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order = {1}' in updated_content
+
+    def test_update_existing_cite_order(self, tmp_path):
+        """Test updating existing cite_order field."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  cite_order = {1},
+  title = {Title}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.update_entry_cite_order(bib_file, 'smith2021', '5')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order = {5}' in updated_content
+        assert 'cite_order = {1}' not in updated_content
+
+    def test_update_case_insensitive(self, tmp_path):
+        """Test that field name matching is case-insensitive."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  CITE_ORDER = {1},
+  title = {Title}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.update_entry_cite_order(bib_file, 'smith2021', '10')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        # Should have the new cite_order value
+        assert 'cite_order = {10}' in updated_content or 'CITE_ORDER = {10}' in updated_content
+
+    def test_update_entry_not_found(self, tmp_path):
+        """Test updating non-existent entry raises ValueError."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        with pytest.raises(ValueError, match="Entry 'nonexistent' not found"):
+            bib_sync.update_entry_cite_order(bib_file, 'nonexistent', '1')
+
+    def test_update_multiple_entries(self, tmp_path):
+        """Test updating cite_order for one entry among multiple."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John}
+}
+
+@article{jones2020,
+  author = {Jones, Arthur}
+}
+
+@article{brown2019,
+  author = {Brown, Bob}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.update_entry_cite_order(bib_file, 'jones2020', '2')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order = {2}' in updated_content
+
+    def test_update_with_string_order(self, tmp_path):
+        """Test that string order values work correctly."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.update_entry_cite_order(bib_file, 'smith2021', '42')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order = {42}' in updated_content
+
+
+class TestRemoveEntryField:
+    """Tests for remove_entry_field function."""
+
+    def test_remove_field_with_braces(self, tmp_path):
+        """Test removing a field with brace delimiters."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  title = {Title},
+  cite_order = {1},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.remove_entry_field(bib_file, 'smith2021', 'cite_order')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order' not in updated_content
+        assert 'author = {Smith, John}' in updated_content
+
+    def test_remove_field_with_quotes(self, tmp_path):
+        """Test removing a field with quote delimiters."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  cite_order = "1",
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.remove_entry_field(bib_file, 'smith2021', 'cite_order')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order' not in updated_content
+
+    def test_remove_field_case_insensitive(self, tmp_path):
+        """Test that field name matching is case-insensitive."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  CITE_ORDER = {1},
+  year = {2021}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.remove_entry_field(bib_file, 'smith2021', 'cite_order')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert 'cite_order' not in updated_content
+        assert 'CITE_ORDER' not in updated_content
+
+    def test_remove_field_from_multiple_entries(self, tmp_path):
+        """Test removing field from one entry among multiple."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  cite_order = {1}
+}
+
+@article{jones2020,
+  author = {Jones, Arthur},
+  cite_order = {2}
+}
+
+@article{brown2019,
+  author = {Brown, Bob},
+  cite_order = {3}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.remove_entry_field(bib_file, 'jones2020', 'cite_order')
+
+        updated_content = bib_file.read_text(encoding='utf-8')
+        # jones2020 should not have cite_order
+        assert updated_content.count('cite_order') == 2
+
+    def test_remove_nonexistent_field(self, tmp_path):
+        """Test removing a field that doesn't exist."""
+        bib_file = tmp_path / 'test.bib'
+        original_content = '''@article{smith2021,
+  author = {Smith, John},
+  year = {2021}
+}'''
+        bib_file.write_text(original_content, encoding='utf-8')
+
+        # Should not raise an error
+        bib_sync.remove_entry_field(bib_file, 'smith2021', 'cite_order')
+
+        # Content should remain unchanged
+        updated_content = bib_file.read_text(encoding='utf-8')
+        assert updated_content == original_content
+
+    def test_remove_field_from_nonexistent_entry(self, tmp_path):
+        """Test removing field from non-existent entry raises ValueError."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        with pytest.raises(ValueError, match="Entry 'nonexistent' not found"):
+            bib_sync.remove_entry_field(bib_file, 'nonexistent', 'cite_order')
+
+
+class TestSortBibtexByCiteOrder:
+    """Tests for sort_bibtex_by_cite_order function."""
+
+    def test_sort_entries_by_cite_order(self, tmp_path):
+        """Test sorting entries by cite_order field."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{brown2019,
+  author = {Brown, Bob},
+  cite_order = {3}
+}
+
+@article{smith2021,
+  author = {Smith, John},
+  cite_order = {1}
+}
+
+@article{jones2020,
+  author = {Jones, Arthur},
+  cite_order = {2}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        sorted_entries = bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        assert len(sorted_entries) == 3
+        assert sorted_entries[0]['key'] == 'smith2021'
+        assert sorted_entries[1]['key'] == 'jones2020'
+        assert sorted_entries[2]['key'] == 'brown2019'
+
+    def test_sort_with_uncited_entries(self, tmp_path):
+        """Test that entries without cite_order are placed at the end."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{uncited1,
+  author = {Uncited, One}
+}
+
+@article{smith2021,
+  author = {Smith, John},
+  cite_order = {1}
+}
+
+@article{uncited2,
+  author = {Uncited, Two}
+}
+
+@article{jones2020,
+  author = {Jones, Arthur},
+  cite_order = {2}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        sorted_entries = bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        assert len(sorted_entries) == 4
+        assert sorted_entries[0]['key'] == 'smith2021'
+        assert sorted_entries[1]['key'] == 'jones2020'
+        # Uncited entries at the end
+        uncited_keys = [e['key'] for e in sorted_entries[2:]]
+        assert 'uncited1' in uncited_keys
+        assert 'uncited2' in uncited_keys
+
+    def test_sort_empty_bib_file(self, tmp_path):
+        """Test sorting an empty BibTeX file."""
+        bib_file = tmp_path / 'test.bib'
+        bib_file.write_text('', encoding='utf-8')
+
+        sorted_entries = bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        assert sorted_entries == []
+
+    def test_sort_single_entry(self, tmp_path):
+        """Test sorting a single entry."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John},
+  cite_order = {1}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        sorted_entries = bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        assert len(sorted_entries) == 1
+        assert sorted_entries[0]['key'] == 'smith2021'
+
+    def test_sort_updates_file(self, tmp_path):
+        """Test that sorted order is written to the file."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{brown2019,
+  cite_order = {3}
+}
+
+@article{smith2021,
+  cite_order = {1}
+}
+
+@article{jones2020,
+  cite_order = {2}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        # Read the file and verify order
+        updated_content = bib_file.read_text(encoding='utf-8')
+        entries = bib_sync.read_bibtex(bib_file)
+
+        assert entries[0]['key'] == 'smith2021'
+        assert entries[1]['key'] == 'jones2020'
+        assert entries[2]['key'] == 'brown2019'
+
+    def test_sort_with_numeric_string_orders(self, tmp_path):
+        """Test sorting with numeric string cite_order values."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{entry10,
+  cite_order = {10}
+}
+
+@article{entry2,
+  cite_order = {2}
+}
+
+@article{entry1,
+  cite_order = {1}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        sorted_entries = bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        assert len(sorted_entries) == 3
+        assert sorted_entries[0]['key'] == 'entry1'
+        assert sorted_entries[1]['key'] == 'entry2'
+        assert sorted_entries[2]['key'] == 'entry10'
+
+
+class TestBibSyncIoIntegration:
+    """Integration tests for BibTeX I/O functions."""
+
+    def test_extract_doi_update_cite_order_sort_roundtrip(self, tmp_path):
+        """Test full roundtrip: extract DOI, update cite_order, sort."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{jones2020,
+  author = {Jones, Arthur},
+  doi = {10.1234/two}
+}
+
+@article{smith2021,
+  author = {Smith, John},
+  doi = {10.1234/one}
+}
+
+@article{brown2019,
+  author = {Brown, Bob},
+  doi = {10.1234/three}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        # Extract DOIs
+        doi_smith = bib_sync.extract_doi_from_bib(bib_file, 'smith2021')
+        doi_jones = bib_sync.extract_doi_from_bib(bib_file, 'jones2020')
+        assert doi_smith == '10.1234/one'
+        assert doi_jones == '10.1234/two'
+
+        # Update cite_order
+        bib_sync.update_entry_cite_order(bib_file, 'smith2021', '1')
+        bib_sync.update_entry_cite_order(bib_file, 'brown2019', '3')
+
+        # Sort
+        sorted_entries = bib_sync.sort_bibtex_by_cite_order(bib_file)
+
+        # Verify sorted order
+        assert len(sorted_entries) == 3
+        assert sorted_entries[0]['key'] == 'smith2021'  # Has cite_order = 1
+        assert sorted_entries[1]['key'] == 'brown2019'  # Has cite_order = 3
+        # jones2020 has no cite_order, so it's at the end (position 2)
+        assert sorted_entries[2]['key'] == 'jones2020'
+
+    def test_remove_field_after_update(self, tmp_path):
+        """Test removing cite_order field after updating it."""
+        bib_file = tmp_path / 'test.bib'
+        content = '''@article{smith2021,
+  author = {Smith, John}
+}'''
+        bib_file.write_text(content, encoding='utf-8')
+
+        # Add cite_order
+        bib_sync.update_entry_cite_order(bib_file, 'smith2021', '5')
+
+        # Verify it was added
+        content_before = bib_file.read_text()
+        assert 'cite_order = {5}' in content_before
+
+        # Remove cite_order
+        bib_sync.remove_entry_field(bib_file, 'smith2021', 'cite_order')
+
+        # Verify it was removed
+        content_after = bib_file.read_text()
+        assert 'cite_order' not in content_after
+        assert 'author = {Smith, John}' in content_after
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
