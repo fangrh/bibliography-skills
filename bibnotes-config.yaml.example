@@ -1,0 +1,15 @@
+# Bibliography Notes Configuration
+# This file allows customizing to questions asked when parsing PDF notes
+
+# Custom questions for PDF note parsing
+custom_questions:
+  - id: datasets
+    question: "What datasets were used?"
+  - id: reproducibility
+    question: "Is the code/data publicly available?"
+  - id: related_work
+    question: "What related work is cited?"
+  - id: performance_metrics
+    question: "What are the key performance metrics reported?"
+  - id: limitations
+    question: "What are the main limitations acknowledged?"
