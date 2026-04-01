@@ -17,10 +17,10 @@ Claude-specific assets live under `claude/`. Codex-specific skills live under `s
 
 ```bash
 /plugin marketplace add fangrh/bibliography-skills
-/plugin install bibliography-skills@fangrh-bibliography-skills
+/plugin install bibliography-skills@bibliography-skills-marketplace
 ```
 
-To install a non-default branch, add the branch-qualified marketplace URL first, then run the same `/plugin install bibliography-skills@fangrh-bibliography-skills` command.
+To install a non-default branch, add the branch-qualified marketplace URL first, then run the same `/plugin install bibliography-skills@bibliography-skills-marketplace` command.
 
 ### Manual Installation
 

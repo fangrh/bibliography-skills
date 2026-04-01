@@ -52,7 +52,7 @@ Marketplace install remains:
 
 ```bash
 /plugin marketplace add fangrh/bibliography-skills
-/plugin install bibliography-skills@fangrh-bibliography-skills
+/plugin install bibliography-skills@bibliography-skills-marketplace
 ```
 
 To install a non-default branch, add the branch-qualified marketplace URL first, then run the same install command.
