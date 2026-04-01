@@ -329,14 +329,16 @@ def extract_doi_from_bib(bib_path: Path, key: str) -> Optional[str]:
     return None
 
 
-def papis_add(doi: str) -> Optional[subprocess.CompletedProcess]:
+def papis_add(doi: str, cwd: Optional[Path] = None) -> Optional[subprocess.CompletedProcess]:
     """Call papis add command with specified DOI.
 
     This function executes the papis add command to add a paper to the
-    papis library using its DOI.
+    papis library using its DOI. The -l . flag sets the library to the
+    current directory.
 
     Args:
         doi: DOI string to add
+        cwd: Working directory for the command (default: None = current)
 
     Returns:
         subprocess.CompletedProcess if papis is available, None otherwise
@@ -346,9 +348,10 @@ def papis_add(doi: str) -> Optional[subprocess.CompletedProcess]:
 
     try:
         result = subprocess.run(
-            ['papis', 'add', '--from', 'doi', doi],
+            ['papis', '-l', '.', 'add', '--from', 'doi', doi],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=cwd
         )
         return result
     except (subprocess.SubprocessError, OSError):
@@ -645,10 +648,10 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path) -> Non
     3. Reads papis.bib entries
     4. Finds missing references
     5. For each missing reference: tries to extract DOI from original .bib file,
-       calls papis to fetch, or prompts user for input
+       calls papis to fetch using -l . library flag, or prompts user for input
     6. Adds cite_order field to cited entries
     7. Removes cite_order field from uncited entries
-    8. Sorts papis.bib by cite_order
+    8. Sorts papis.bib by cite_order (uncited entries at end)
     9. Writes updated entries to papis.bib
 
     Args:
@@ -660,6 +663,10 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path) -> Non
         FileNotFoundError: If required files do not exist
         OSError: If files cannot be read or written
     """
+    # Use the directory containing papis_bib_path as the working directory
+    # This ensures papis commands use the correct library path (-l .)
+    work_dir = papis_bib_path.parent
+
     # 1. Compile tex to get bbl
     bbl_path = compile_latex(tex_path)
     if not bbl_path or not bbl_path.exists():
@@ -668,6 +675,9 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path) -> Non
 
     # 2. Parse cited keys from .bbl file
     cited_keys = parse_bbl_citations(bbl_path)
+    if not cited_keys:
+        print("Warning: No citations found in .bbl file")
+        return
 
     # 3. Read papis.bib entries
     papis_entries = read_bibtex(papis_bib_path)
@@ -677,27 +687,34 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path) -> Non
     missing = set(cited_keys) - papis_keys
 
     # 5. For each missing reference, try to fetch it
-    for key in missing:
-        # Try to extract DOI from original .bib file
-        doi = extract_doi_from_bib(bib_path, key)
-        if doi:
-            # Call papis to fetch the missing reference
-            result = papis_add(doi)
-            if result and result.returncode == 0:
-                print(f"Fetching missing reference: {key}")
-            else:
-                print(f"Warning: Failed to fetch {key} with DOI: {doi}")
-        else:
-            # Prompt user for input
-            print(f"Warning: No DOI found for {key}")
-            print(f"Please provide a DOI, URL, or other identifier for '{key}'")
-            user_input = input("Enter DOI/URL, or press Enter to skip: ").strip()
-            if user_input:
-                result = papis_add(user_input)
+    if missing:
+        print(f"Found {len(missing)} missing reference(s)")
+        for key in missing:
+            # Try to extract DOI from original .bib file
+            doi = extract_doi_from_bib(bib_path, key)
+            if doi:
+                # Call papis to fetch the missing reference with -l . flag
+                print(f"Fetching missing reference: {key} (DOI: {doi})")
+                result = papis_add(doi, cwd=work_dir)
                 if result and result.returncode == 0:
-                    print(f"Successfully fetched reference for '{key}'")
+                    print(f"Successfully added {key}")
                 else:
-                    print(f"Warning: Failed to fetch {key}")
+                    print(f"Warning: Failed to fetch {key} with DOI: {doi}")
+                    if result and result.stderr:
+                        print(f"  Error: {result.stderr}")
+            else:
+                # Prompt user for input
+                print(f"Warning: No DOI found for {key}")
+                print(f"Please provide a DOI, URL, PMID, or arXiv ID for '{key}'")
+                user_input = input("Enter identifier (or press Enter to skip): ").strip()
+                if user_input:
+                    result = papis_add(user_input, cwd=work_dir)
+                    if result and result.returncode == 0:
+                        print(f"Successfully fetched reference for '{key}'")
+                    else:
+                        print(f"Warning: Failed to fetch {key}")
+                        if result and result.stderr:
+                            print(f"  Error: {result.stderr}")
 
     # Re-read papis.bib entries after potential additions
     papis_entries = read_bibtex(papis_bib_path)
@@ -718,4 +735,5 @@ def sync_references(tex_path: Path, bib_path: Path, papis_bib_path: Path) -> Non
                 print(f"Warning: {e}")
 
     # 8. Sort and export papis.bib by cite_order
+    # Entries without cite_order appear at the end (treated as 9999)
     sort_bibtex_by_cite_order(papis_bib_path)
