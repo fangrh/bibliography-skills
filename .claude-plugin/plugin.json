@@ -1,12 +1,15 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "bibliography-skills",
-  "version": "1.0.2",
-  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code",
   "author": {
     "name": "fangrh"
   },
   "homepage": "https://github.com/fangrh/bibliography-skills",
-  "repository": "https://github.com/fangrh/bibliography-skills",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fangrh/bibliography-skills"
+  },
   "license": "MIT",
   "keywords": [
     "bibliography",
@@ -18,5 +21,22 @@
     "doi",
     "arxiv",
     "smart-search"
-  ]
+  ],
+  "claude": {
+    "commands": [
+      "bib-extractor",
+      "bib-searcher",
+      "bib-sync",
+      "bib-manage"
+    ],
+    "dependencies": [
+      "requests",
+      "papis"
+    ]
+  },
+  "install": {
+    "commands_dir": "claude/commands",
+    "scripts_dir": "scripts",
+    "dependencies": "requirements.txt"
+  }
 }
