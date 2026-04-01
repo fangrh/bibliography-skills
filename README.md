@@ -1,9 +1,11 @@
 # Bibliography Skills
 
-Bibliography helpers for Codex and Claude Code. The repository exposes two maintained workflows:
+Bibliography helpers for Codex and Claude Code. The repository exposes four maintained workflows:
 
 - `bib-extractor`: normalize a known DOI, URL, PMID, or arXiv ID into BibTeX
 - `bib-searcher`: audit a draft sentence by sentence, reuse the local bibliography first, and search for supporting papers only when needed
+- `bib-sync`: sync LaTeX citations with the papis bibliography
+- `bib-manage`: maintain the papis bibliography and clean metadata
 
 ## Platforms
 
@@ -52,6 +54,8 @@ Marketplace install remains:
 /plugin marketplace add fangrh/bibliography-skills
 /plugin install bibliography-skills@fangrh-bibliography-skills
 ```
+
+To install a non-default branch, add the branch-qualified marketplace URL first, then run the same install command.
 
 Manual installation copies files from `claude/commands/` and shared scripts from `scripts/`.
 

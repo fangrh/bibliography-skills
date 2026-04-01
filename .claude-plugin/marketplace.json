@@ -13,7 +13,7 @@
       "name": "bibliography-skills",
       "source": "./",
       "description": "Extract bibliographies from DOIs/URLs/PMIDs/arXiv IDs and perform sentence-aware citation search with BibTeX output",
-      "version": "1.0.2",
+      "version": "2.0.0",
       "author": {
         "name": "fangrh"
       },

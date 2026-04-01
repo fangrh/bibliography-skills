@@ -6,6 +6,8 @@ Single source of truth:
 
 This script updates:
   - package.json
+  - .claude-plugin/plugin.json
+  - .claude-plugin/marketplace.json
   - claude/.claude-plugin
   - claude/manifest.json
   - claude/packages/bibliography-skills/manifest.json
@@ -34,6 +36,22 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def sync_root_marketplace(path: Path, version: str) -> bool:
+    if not path.exists():
+        return False
+
+    data = load_json(path)
+    changed = False
+    for plugin in data.get("plugins", []):
+        if plugin.get("name") == "bibliography-skills" and plugin.get("version") != version:
+            plugin["version"] = version
+            changed = True
+
+    if changed:
+        write_json(path, data)
+    return changed
+
+
 def sync_claude_plugin(path: Path, version: str) -> bool:
     if not path.exists():
         return False
@@ -59,6 +77,7 @@ def sync_repo_versions(repo_root: Path, version: str) -> list[Path]:
 
     targets = [
         repo_root / "package.json",
+        repo_root / ".claude-plugin" / "plugin.json",
         repo_root / "claude" / "manifest.json",
         repo_root / "claude" / "packages" / "bibliography-skills" / "manifest.json",
         repo_root / "claude" / "marketplace.json",
@@ -74,6 +93,10 @@ def sync_repo_versions(repo_root: Path, version: str) -> list[Path]:
             data["version"] = version
             write_json(path, data)
             changed.append(path)
+
+    root_marketplace = repo_root / ".claude-plugin" / "marketplace.json"
+    if sync_root_marketplace(root_marketplace, version):
+        changed.append(root_marketplace)
 
     claude_plugin = repo_root / "claude" / ".claude-plugin"
     if sync_claude_plugin(claude_plugin, version):

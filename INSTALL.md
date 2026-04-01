@@ -9,7 +9,9 @@ This document covers Claude Code installation. For Codex, use [.codex/INSTALL.md
 /plugin install bibliography-skills@fangrh-bibliography-skills
 ```
 
-The Claude plugin assets are now packaged from `claude/`.
+To install a non-default branch, add the branch-qualified marketplace URL first, then run the same install command.
+
+The Claude install contract is rooted at `.claude-plugin/`. The `claude/` directory remains the source for command and manifest assets bundled by the plugin package.
 
 ## Claude Code Manual Installation
 
@@ -33,6 +35,10 @@ mkdir -p ~/.claude/commands ~/.claude/scripts
 cp claude/commands/* ~/.claude/commands/
 cp scripts/bib_extractor.py ~/.claude/scripts/
 cp scripts/bib_smart_search.py ~/.claude/scripts/
+cp scripts/bib_sync.py ~/.claude/scripts/
+cp scripts/bib_manage.py ~/.claude/scripts/
+cp scripts/bib_utils.py ~/.claude/scripts/
+cp scripts/title_normalizer.py ~/.claude/scripts/
 ```
 
 ### Step 4: Verify Installation
@@ -49,14 +55,22 @@ In Claude Code, run:
 |---------|-------------|
 | `/bib-extractor` | Extract BibTeX from DOIs, URLs, PMIDs, and arXiv IDs |
 | `/bib-searcher` | Analyze text, reuse existing references first, and search for supporting citations |
+| `/bib-sync` | Sync LaTeX citations with the papis bibliography |
+| `/bib-manage` | Manage duplicates, metadata cleanup, and papis bibliography maintenance |
 
 ## Uninstallation
 
 ```bash
 rm -f ~/.claude/commands/bib-extractor.md
 rm -f ~/.claude/commands/bib-searcher.md
+rm -f ~/.claude/commands/bib-sync.md
+rm -f ~/.claude/commands/bib-manage.md
 rm -f ~/.claude/scripts/bib_extractor.py
 rm -f ~/.claude/scripts/bib_smart_search.py
+rm -f ~/.claude/scripts/bib_sync.py
+rm -f ~/.claude/scripts/bib_manage.py
+rm -f ~/.claude/scripts/bib_utils.py
+rm -f ~/.claude/scripts/title_normalizer.py
 ```
 
 ## Troubleshooting
@@ -65,7 +79,7 @@ rm -f ~/.claude/scripts/bib_smart_search.py
 
 **Python not found**: Ensure Python 3 is installed and in `PATH`
 
-**requests module not found**: Run `pip install requests`
+**Python dependencies not found**: Run `pip install -r requirements.txt`
 
 ## License
 

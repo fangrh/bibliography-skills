@@ -2,10 +2,12 @@
 
 ## Overview
 
-This repository provides two Claude Code commands backed by shared Python scripts:
+This repository provides four Claude Code commands backed by shared Python scripts:
 
 - `/bib-extractor`
 - `/bib-searcher`
+- `/bib-sync`
+- `/bib-manage`
 
 Claude-specific assets live under `claude/`. Codex-specific skills live under `skills/`.
 
@@ -17,6 +19,8 @@ Claude-specific assets live under `claude/`. Codex-specific skills live under `s
 /plugin marketplace add fangrh/bibliography-skills
 /plugin install bibliography-skills@fangrh-bibliography-skills
 ```
+
+To install a non-default branch, add the branch-qualified marketplace URL first, then run the same `/plugin install bibliography-skills@fangrh-bibliography-skills` command.
 
 ### Manual Installation
 

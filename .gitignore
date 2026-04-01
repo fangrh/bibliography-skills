@@ -40,3 +40,4 @@ demo_refs.bib
 
 # Claude Code
 .claude/session-data/
+.worktrees/
