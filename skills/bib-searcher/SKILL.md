@@ -31,4 +31,5 @@ Find better published references for unsupported claims in this report
 
 - Shared implementation lives in `scripts/bib_smart_search.py`.
 - Prefer local bibliography matches before external search.
+- papis is now available for metadata fetching during external searches.
 - Keep extractor finalization as the last gate before editing the draft or presenting a final citation string.

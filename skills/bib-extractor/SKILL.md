@@ -10,7 +10,7 @@ Use this skill when the user already knows which paper they want and needs a nor
 ## Core Workflow
 
 1. Clean the identifier.
-2. Run the extractor against the shared script in `scripts/bib_extractor.py`.
+2. Run the extractor against the shared script in `scripts/bib_extractor.py`, which uses papis CLI for metadata fetching.
 3. Normalize metadata, citation key, DOI, URL, and journal fields.
 4. Append to the target `.bib` file, or print only if requested.
 
