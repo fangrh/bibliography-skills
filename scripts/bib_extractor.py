@@ -6,10 +6,19 @@ Supports DOIs, URLs, PMIDs, and arXiv IDs via papis CLI
 
 import sys
 import re
+import json
 import argparse
-from typing import Optional, List
+from typing import Dict, List, Optional
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from pathlib import Path
 import subprocess
+import html as html_lib
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from title_normalizer import normalize_title_for_bibtex
 
 # Optional papis import - only required at runtime, not for import
 # This allows testing and module import without papis installed
@@ -19,6 +28,11 @@ try:
     PAPIS_AVAILABLE = True
 except ImportError:
     PAPIS_AVAILABLE = False
+
+try:
+    import requests
+except ImportError:
+    requests = None
 
 
 def normalize_to_doi(identifier: str) -> str:
@@ -258,6 +272,338 @@ def process_batch(
 
     # Final export to ensure all entries are in output file
     export_bibtex(output_file)
+
+
+class BibExtractor:
+    """Legacy-compatible extractor API used by bib_smart_search."""
+
+    JOURNAL_ABBREVIATIONS = {
+        'Nature Communications': 'Nat. Commun.',
+        'Physical Review B': 'Phys. Rev. B',
+        'Physical Review D': 'Phys. Rev. D',
+        'Physical Review Letters': 'Phys. Rev. Lett.',
+        'Nature': 'Nature',
+        'Science': 'Science',
+        'Nano Letters': 'Nano Lett.',
+    }
+
+    FIELD_PATTERN = re.compile(r'(\w+)\s*=\s*\{((?:[^{}]|\{[^{}]*\})*)\}', re.DOTALL)
+
+    def __init__(self, timeout: int = 15, use_full_journal_name: bool = False):
+        self.timeout = timeout
+        self.use_full_journal_name = use_full_journal_name
+        self.session = requests.Session() if requests is not None else None
+        if self.session is not None:
+            self.session.headers.update({
+                'User-Agent': 'BibExtractor/1.0 (Citation Management Tool)',
+            })
+
+    def abbreviate_journal(self, journal_name: str) -> str:
+        if self.use_full_journal_name or not journal_name:
+            return journal_name
+        return self.JOURNAL_ABBREVIATIONS.get(journal_name, journal_name)
+
+    def extract_doi_from_url(self, url: str) -> Optional[str]:
+        match = re.search(r'10\.\d{4,9}/[^\s\?"<>#]+', url)
+        return self.clean_doi(match.group(0)) if match else None
+
+    def extract_arxiv_id_from_url(self, url: str) -> Optional[str]:
+        match = re.search(r'arxiv\.org/(?:abs|pdf)/(\d+\.\d+)', url)
+        return match.group(1) if match else None
+
+    def extract_pmid_from_url(self, url: str) -> Optional[str]:
+        match = re.search(r'pubmed\.ncbi\.nlm\.nih\.gov/(\d+)', url)
+        return match.group(1) if match else None
+
+    def clean_doi(self, doi: str) -> str:
+        return normalize_to_doi(doi).rstrip('/')
+
+    def normalize_url(self, url: str) -> str:
+        url = url.strip()
+        if not url:
+            return ''
+
+        parsed = urlparse(url)
+        query = urlencode([
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=False)
+            if not key.lower().startswith(('utm_', 'fbclid', 'gclid'))
+        ])
+        path = parsed.path.rstrip('/')
+        scheme = parsed.scheme.lower() or 'https'
+        netloc = parsed.netloc.lower()
+        return urlunparse((scheme, netloc, path, '', query, ''))
+
+    def _split_bib_entries(self, content: str) -> List[str]:
+        return split_bib_entries(content)
+
+    def _parse_bibtex_fields(self, bibtex: str) -> Dict[str, str]:
+        fields = {}
+        for name, value in self.FIELD_PATTERN.findall(bibtex):
+            fields[name.lower()] = re.sub(r'\s+', ' ', value.strip())
+        return fields
+
+    def _find_entry_field(self, entry: str, field_name: str) -> str:
+        return self._parse_bibtex_fields(entry).get(field_name.lower(), '')
+
+    def find_existing_entry(self, identifier: str, bib_file: Optional[str]) -> Optional[str]:
+        if not bib_file or not Path(bib_file).exists():
+            return None
+
+        raw_identifier = identifier.strip()
+        target_doi = ''
+        target_url = ''
+        target_eprint = ''
+
+        if raw_identifier.startswith(('http://', 'https://')):
+            extracted_doi = self.extract_doi_from_url(raw_identifier)
+            if extracted_doi:
+                target_doi = self.clean_doi(extracted_doi).lower()
+            else:
+                target_url = self.normalize_url(raw_identifier)
+            extracted_arxiv = self.extract_arxiv_id_from_url(raw_identifier)
+            if extracted_arxiv:
+                target_eprint = extracted_arxiv
+        elif re.match(r'^\d{4}\.\d{4,5}$', raw_identifier):
+            target_eprint = raw_identifier
+        elif not raw_identifier.isdigit():
+            target_doi = self.clean_doi(raw_identifier).lower()
+
+        try:
+            content = Path(bib_file).read_text(encoding='utf-8')
+        except OSError:
+            return None
+
+        for entry in self._split_bib_entries(content):
+            entry_doi = self.clean_doi(self._find_entry_field(entry, 'doi')).lower() if self._find_entry_field(entry, 'doi') else ''
+            entry_url = self.normalize_url(self._find_entry_field(entry, 'url')) if self._find_entry_field(entry, 'url') else ''
+            entry_eprint = self._find_entry_field(entry, 'eprint')
+
+            if target_doi and entry_doi == target_doi:
+                return entry.strip()
+            if target_url and entry_url == target_url:
+                return entry.strip()
+            if target_eprint and entry_eprint == target_eprint:
+                return entry.strip()
+
+        return None
+
+    def _extract_year(self, message: Dict) -> str:
+        for key in ('published-print', 'published-online', 'created', 'issued'):
+            parts = message.get(key, {}).get('date-parts', [])
+            if parts and parts[0]:
+                return str(parts[0][0])
+        return ''
+
+    def _format_authors(self, authors: List[Dict]) -> str:
+        formatted = []
+        for author in authors or []:
+            family = author.get('family', '').strip()
+            given = author.get('given', '').strip()
+            if family and given:
+                formatted.append(f'{family}, {given}')
+            elif family:
+                formatted.append(family)
+        return ' and '.join(formatted)
+
+    def _build_bibtex(self, entry_type: str, key: str, fields: Dict[str, str]) -> str:
+        lines = [f'@{entry_type}{{{key},']
+        ordered_names = [
+            'author', 'title', 'journal', 'volume', 'number', 'pages', 'year',
+            'doi', 'url', 'eprint', 'archiveprefix', 'abstract',
+        ]
+        field_widths = {
+            'eprint': 9,
+        }
+        for name in ordered_names:
+            value = fields.get(name)
+            if value:
+                width = field_widths.get(name, 10)
+                lines.append(f'  {name.ljust(width)} = {{{value}}},')
+        if lines[-1].endswith(','):
+            lines[-1] = lines[-1][:-1]
+        lines.append('}')
+        return '\n'.join(lines)
+
+    def _fix_bibtex_fields(
+        self,
+        bibtex: str,
+        doi: str = '',
+        crossref_metadata: Optional[Dict] = None,
+    ) -> str:
+        header, _, rest = bibtex.partition('\n')
+        fields = self._parse_bibtex_fields(rest)
+
+        raw_title = fields.get('title', '')
+        if raw_title:
+            fields['title'] = normalize_title_for_bibtex(raw_title)
+
+        journal = fields.get('journal', '')
+        if journal:
+            fields['journal'] = self.abbreviate_journal(journal)
+
+        metadata = crossref_metadata or {}
+        issue = metadata.get('issue') or metadata.get('number')
+        article_number = metadata.get('article-number')
+        page = metadata.get('page')
+        if issue and not fields.get('number'):
+            fields['number'] = str(issue)
+        if not fields.get('pages'):
+            if article_number:
+                fields['pages'] = str(article_number)
+            elif page:
+                fields['pages'] = str(page)
+
+        ordered = {}
+        ordered['author'] = fields.get('author', '')
+        ordered['title'] = fields.get('title', '')
+        ordered['journal'] = fields.get('journal', '')
+        ordered['volume'] = fields.get('volume', '')
+        ordered['number'] = fields.get('number', '')
+        ordered['pages'] = fields.get('pages', '')
+        ordered['year'] = fields.get('year', '')
+        ordered['doi'] = fields.get('doi', doi)
+        ordered['url'] = fields.get('url', '')
+        ordered['eprint'] = fields.get('eprint', '')
+        ordered['archiveprefix'] = fields.get('archiveprefix', '')
+        ordered['abstract'] = fields.get('abstract', '')
+
+        entry_type = 'misc' if ordered['eprint'] and not ordered['journal'] else 'article'
+        key_match = re.match(r'@\w+\{([^,]+),', bibtex)
+        key = key_match.group(1) if key_match else (ordered['eprint'] or doi or 'tmp')
+        return self._build_bibtex(entry_type, key, ordered)
+
+    def fetch_from_crossref(self, doi: str, fetch_abstract: bool = False) -> Optional[str]:
+        if self.session is None:
+            return None
+
+        try:
+            response = self.session.get(
+                f'https://api.crossref.org/works/{doi}',
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            message = response.json().get('message', {})
+        except Exception:
+            return None
+
+        title_list = message.get('title') or []
+        journal_list = message.get('container-title') or []
+        fields = {
+            'author': self._format_authors(message.get('author') or []),
+            'title': title_list[0] if title_list else '',
+            'journal': journal_list[0] if journal_list else '',
+            'volume': str(message.get('volume', '') or ''),
+            'number': str(message.get('issue', '') or ''),
+            'pages': str(message.get('page', '') or message.get('article-number', '') or ''),
+            'year': self._extract_year(message),
+            'doi': self.clean_doi(message.get('DOI', doi) or doi),
+            'url': message.get('URL', '') or '',
+        }
+        if fetch_abstract and message.get('abstract'):
+            fields['abstract'] = message['abstract']
+
+        key = re.sub(r'[^A-Za-z0-9]+', '', fields['doi']) or 'tmp'
+        bibtex = self._build_bibtex('article', key, fields)
+        return self._fix_bibtex_fields(bibtex, doi=fields['doi'], crossref_metadata=message)
+
+    def _arxiv_html_to_bibtex(self, html: str, arxiv_id: str) -> Optional[str]:
+        def meta_values(name: str) -> List[str]:
+            pattern = rf'<meta\s+name="{re.escape(name)}"\s+content="([^"]*)"'
+            return [html_lib.unescape(value).strip() for value in re.findall(pattern, html, flags=re.I)]
+
+        title_values = meta_values('citation_title')
+        author_values = meta_values('citation_author')
+        date_values = meta_values('citation_date')
+        abstract_values = meta_values('citation_abstract')
+
+        title = title_values[0] if title_values else ''
+        authors = ' and '.join(author_values)
+        year = date_values[0][:4] if date_values else ''
+        fields = {
+            'author': authors,
+            'title': title,
+            'year': year,
+            'eprint': arxiv_id,
+            'archiveprefix': 'arXiv',
+            'url': f'https://arxiv.org/abs/{arxiv_id}',
+            'abstract': abstract_values[0] if abstract_values else '',
+        }
+        bibtex = self._build_bibtex('misc', arxiv_id, fields)
+        return self._fix_bibtex_fields(bibtex)
+
+    def fetch_from_arxiv(self, arxiv_id: str, fetch_abstract: bool = False) -> Optional[str]:
+        if self.session is None:
+            return None
+
+        try:
+            response = self.session.get(
+                f'https://arxiv.org/abs/{arxiv_id}',
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return self._arxiv_html_to_bibtex(response.text, arxiv_id)
+        except Exception:
+            return None
+
+    def fetch_from_pubmed(self, pmid: str, fetch_abstract: bool = False) -> Optional[str]:
+        return None
+
+    def extract_bibtex(
+        self,
+        identifier: str,
+        fetch_abstract: bool = False,
+        bib_file: Optional[str] = None,
+    ) -> Optional[str]:
+        identifier = identifier.strip()
+
+        existing_entry = self.find_existing_entry(identifier, bib_file)
+        if existing_entry:
+            return existing_entry
+
+        if identifier.startswith(('http://', 'https://')):
+            doi = self.extract_doi_from_url(identifier)
+            if doi:
+                return self.fetch_from_crossref(doi, fetch_abstract=fetch_abstract)
+
+            arxiv_id = self.extract_arxiv_id_from_url(identifier)
+            if arxiv_id:
+                return self.fetch_from_arxiv(arxiv_id, fetch_abstract=fetch_abstract)
+
+            pmid = self.extract_pmid_from_url(identifier)
+            if pmid:
+                return self.fetch_from_pubmed(pmid, fetch_abstract=fetch_abstract)
+            return None
+
+        if identifier.isdigit():
+            return self.fetch_from_pubmed(identifier, fetch_abstract=fetch_abstract)
+
+        if re.match(r'^\d{4}\.\d{4,5}$', identifier):
+            return self.fetch_from_arxiv(identifier, fetch_abstract=fetch_abstract)
+
+        return self.fetch_from_crossref(self.clean_doi(identifier), fetch_abstract=fetch_abstract)
+
+    def generate_inline_citation(self, bibtex: str, style: str = 'journal') -> str:
+        fields = self._parse_bibtex_fields(bibtex)
+        eprint = fields.get('eprint', '')
+        if eprint and not fields.get('journal'):
+            year = fields.get('year', '')
+            suffix = f', ({year})' if year else ''
+            return f'arXiv:{eprint}{suffix}'
+
+        journal = fields.get('journal', '')
+        volume = fields.get('volume', '')
+        pages = fields.get('pages', '')
+        year = fields.get('year', '')
+
+        body = journal
+        if volume:
+            body = f'{body} {volume}'.strip()
+        if pages:
+            body = f'{body}, {pages}'.strip(', ')
+        if year:
+            body = f'{body} ({year})'.strip()
+        return body.strip()
 
 
 def main():

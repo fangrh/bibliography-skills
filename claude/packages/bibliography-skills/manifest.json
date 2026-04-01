@@ -1,10 +1,10 @@
 {
   "name": "bibliography-skills",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "Bibliography extraction and sentence-aware citation search for Claude Code",
   "author": "fangrh",
   "license": "MIT",
-  "repository": "fangrh/bibliography-skills-marketplace",
+  "repository": "https://github.com/fangrh/bibliography-skills",
   "keywords": [
     "bibliography",
     "bibtex",
@@ -19,13 +19,19 @@
   "claude": {
     "commands": [
       "bib-extractor",
-      "bib-searcher"
+      "bib-searcher",
+      "bib-sync",
+      "bib-manage"
     ],
     "skills": [
-      "bib-extractor"
+      "bib-extractor",
+      "bib-searcher",
+      "bib-sync",
+      "bib-manage"
     ],
     "dependencies": [
-      "requests"
+      "requests",
+      "papis"
     ]
   },
   "install": {
@@ -43,12 +49,36 @@
       "destination": "~/.claude/commands/bib-searcher.md"
     },
     {
+      "source": "claude/commands/bib-sync.md",
+      "destination": "~/.claude/commands/bib-sync.md"
+    },
+    {
+      "source": "claude/commands/bib-manage.md",
+      "destination": "~/.claude/commands/bib-manage.md"
+    },
+    {
       "source": "scripts/bib_extractor.py",
       "destination": "~/.claude/scripts/bib_extractor.py"
     },
     {
       "source": "scripts/bib_smart_search.py",
       "destination": "~/.claude/scripts/bib_smart_search.py"
+    },
+    {
+      "source": "scripts/bib_sync.py",
+      "destination": "~/.claude/scripts/bib_sync.py"
+    },
+    {
+      "source": "scripts/bib_manage.py",
+      "destination": "~/.claude/scripts/bib_manage.py"
+    },
+    {
+      "source": "scripts/bib_utils.py",
+      "destination": "~/.claude/scripts/bib_utils.py"
+    },
+    {
+      "source": "scripts/title_normalizer.py",
+      "destination": "~/.claude/scripts/title_normalizer.py"
     }
   ]
 }

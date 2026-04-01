@@ -347,11 +347,16 @@ def papis_add(doi: str, cwd: Optional[Path] = None) -> Optional[subprocess.Compl
         return None
 
     try:
+        run_kwargs = {
+            'capture_output': True,
+            'text': True,
+        }
+        if cwd is not None:
+            run_kwargs['cwd'] = cwd
+
         result = subprocess.run(
             ['papis', '-l', '.', 'add', '--from', 'doi', doi],
-            capture_output=True,
-            text=True,
-            cwd=cwd
+            **run_kwargs,
         )
         return result
     except (subprocess.SubprocessError, OSError):

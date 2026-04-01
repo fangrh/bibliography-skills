@@ -1,6 +1,22 @@
 {
-  "name": "bibliography-skills-marketplace",
+  "name": "bibliography-skills",
   "version": "2.0.0",
-  "description": "Bibliography plugin marketplace metadata for Claude Code",
-  "author": "fangrh"
+  "description": "Bibliography extraction and sentence-aware citation search for Claude Code and Codex",
+  "author": {
+    "name": "fangrh"
+  },
+  "homepage": "https://github.com/fangrh/bibliography-skills",
+  "repository": "https://github.com/fangrh/bibliography-skills",
+  "license": "MIT",
+  "keywords": [
+    "bibliography",
+    "bibtex",
+    "zotero",
+    "academic",
+    "latex",
+    "citations",
+    "doi",
+    "arxiv",
+    "smart-search"
+  ]
 }
